@@ -132,9 +132,9 @@ const weightData = [
 ];
 
 const bloodPressureData = [
-  { id: "bp-1", date: "2026-02-01", systolic: 132, diastolic: 84, pulse: 74, notes: "Morning reading" },
-  { id: "bp-2", date: "2026-02-08", systolic: 128, diastolic: 82, pulse: 72, notes: "" },
-  { id: "bp-3", date: "2026-02-15", systolic: 124, diastolic: 79, pulse: 70, notes: "" },
+  { id: "bp-1", date: "2026-02-01", time: "08:30", systolic: 132, diastolic: 84, pulse: 74, notes: "Morning reading" },
+  { id: "bp-2", date: "2026-02-08", time: "08:20", systolic: 128, diastolic: 82, pulse: 72, notes: "" },
+  { id: "bp-3", date: "2026-02-15", time: "08:15", systolic: 124, diastolic: 79, pulse: 70, notes: "" },
 ];
 
 const initialMeals = [
@@ -205,7 +205,7 @@ function sortBloodPressureEntries(entries) {
   if (!Array.isArray(entries)) return [];
   return [...entries]
     .filter((entry) => entry?.date && Number.isFinite(Number(entry.systolic)) && Number.isFinite(Number(entry.diastolic)))
-    .sort((a, b) => new Date(a.date) - new Date(b.date));
+    .sort((a, b) => new Date(`${a.date}T${a.time || "00:00"}`) - new Date(`${b.date}T${b.time || "00:00"}`));
 }
 
 function getLatestWeightEntry(entries) {
@@ -277,21 +277,23 @@ function upsertWeightEntry(entries, entry) {
 function upsertBloodPressureEntry(entries, entry) {
   if (!entry?.date || !Number.isFinite(Number(entry.systolic)) || !Number.isFinite(Number(entry.diastolic))) return [...entries];
   const normalizedDate = entry.date;
+  const normalizedTime = entry.time || "00:00";
   const normalizedSystolic = safeNumber(entry.systolic);
   const normalizedDiastolic = safeNumber(entry.diastolic);
   const normalizedPulse = entry.pulse === "" || entry.pulse === undefined ? "" : safeNumber(entry.pulse);
   const normalizedNotes = String(entry.notes || "").trim();
-  const existing = entries.find((item) => item.date === normalizedDate);
+  const existing = entries.find((item) => item.date === normalizedDate && (item.time || "00:00") === normalizedTime);
   const nextEntry = {
     id: existing?.id || entry.id || createId(),
     date: normalizedDate,
+    time: normalizedTime,
     systolic: normalizedSystolic,
     diastolic: normalizedDiastolic,
     pulse: normalizedPulse,
     notes: normalizedNotes,
   };
   if (existing) {
-    return entries.map((item) => (item.date === normalizedDate ? nextEntry : item));
+    return entries.map((item) => (item.date === normalizedDate && (item.time || "00:00") === normalizedTime ? nextEntry : item));
   }
   return [...entries, nextEntry];
 }
@@ -314,6 +316,16 @@ function formatDateNumeric(dateString) {
   const month = String(date.getUTCMonth() + 1).padStart(2, "0");
   const year = date.getUTCFullYear();
   return `${day}-${month}-${year}`;
+}
+
+function formatDateTimeNumeric(dateString, timeString = "") {
+  const time = timeString || "00:00";
+  return `${formatDateNumeric(dateString)} ${time}`;
+}
+
+function formatBloodPressureChartLabel(recordedAt) {
+  const [date = "", time = ""] = String(recordedAt).split("T");
+  return formatDateTimeNumeric(date, time.slice(0, 5));
 }
 
 function safeNumber(value, fallback = 0) {
@@ -445,6 +457,7 @@ function createFallbackAppState() {
     bloodPressureEntries: sortBloodPressureEntries((Array.isArray(storedBloodPressure) ? storedBloodPressure : bloodPressureData).map((entry) => ({
       id: entry.id || createId(),
       date: entry.date,
+      time: entry.time || "00:00",
       systolic: safeNumber(entry.systolic),
       diastolic: safeNumber(entry.diastolic),
       pulse: entry.pulse === "" || entry.pulse === undefined ? "" : safeNumber(entry.pulse),
@@ -484,6 +497,7 @@ function normalizeAppState(state) {
     bloodPressureEntries: sortBloodPressureEntries((Array.isArray(state.bloodPressureEntries) ? state.bloodPressureEntries : fallback.bloodPressureEntries).map((entry) => ({
       id: entry.id || createId(),
       date: entry.date,
+      time: entry.time || "00:00",
       systolic: safeNumber(entry.systolic),
       diastolic: safeNumber(entry.diastolic),
       pulse: entry.pulse === "" || entry.pulse === undefined ? "" : safeNumber(entry.pulse),
@@ -1165,9 +1179,7 @@ function BloodPressurePage({
 }) {
   const latestStatus = latestEntry ? getBloodPressureStatus(latestEntry.systolic, latestEntry.diastolic) : getBloodPressureStatus(0, 0);
   const averageStatus = averageReading.systolic ? getBloodPressureStatus(averageReading.systolic, averageReading.diastolic) : null;
-  const previousEntry = sortedEntries.length > 1 ? sortedEntries[sortedEntries.length - 2] : null;
-  const systolicChange = latestEntry && previousEntry ? latestEntry.systolic - previousEntry.systolic : null;
-  const diastolicChange = latestEntry && previousEntry ? latestEntry.diastolic - previousEntry.diastolic : null;
+  const chartEntries = sortedEntries.map((entry) => ({ ...entry, recordedAt: `${entry.date}T${entry.time || "00:00"}` }));
 
   return (
     <div className="space-y-6">
@@ -1183,7 +1195,7 @@ function BloodPressurePage({
       </div>
 
       <div className="grid gap-4 md:grid-cols-4">
-        <StatCard icon={HeartPulseIcon} label="Latest reading" value={latestEntry ? `${latestEntry.systolic}/${latestEntry.diastolic}` : "--/--"} sub={latestEntry ? formatDateNumeric(latestEntry.date) : "No readings"} accent={latestStatus.accent} />
+        <StatCard icon={HeartPulseIcon} label="Latest reading" value={latestEntry ? `${latestEntry.systolic}/${latestEntry.diastolic}` : "--/--"} sub={latestEntry ? formatDateTimeNumeric(latestEntry.date, latestEntry.time) : "No readings"} accent={latestStatus.accent} />
         <StatCard icon={TargetIcon} label="Latest status" value={latestEntry ? latestStatus.label : "No data"} sub="Based on latest reading" accent={latestStatus.accent} />
         <StatCard icon={SparklesIcon} label="Average reading" value={averageReading.systolic ? `${averageReading.systolic}/${averageReading.diastolic}` : "--/--"} sub={averageStatus ? averageStatus.label : "No readings"} accent={averageStatus?.accent || "bg-slate-100 text-slate-700"} />
         <StatCard icon={FlameIcon} label="Latest pulse" value={latestEntry?.pulse ? `${latestEntry.pulse} bpm` : "-- bpm"} sub="Optional field" accent="bg-indigo-100 text-indigo-700" />
@@ -1196,10 +1208,16 @@ function BloodPressurePage({
             <p className="text-xs text-slate-500">Use a new date or update an existing reading.</p>
           </div>
           <form onSubmit={onAddBloodPressure} className="grid gap-4">
-            <label className="block text-sm text-slate-600">
-              Date
-              <input type="date" value={bpForm.date} onChange={onBpFormChange("date")} className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-slate-900 shadow-sm focus:border-sky-300 focus:outline-none" />
-            </label>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <label className="block text-sm text-slate-600">
+                Date
+                <input type="date" value={bpForm.date} onChange={onBpFormChange("date")} className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-slate-900 shadow-sm focus:border-sky-300 focus:outline-none" />
+              </label>
+              <label className="block text-sm text-slate-600">
+                Time
+                <input type="time" value={bpForm.time} onChange={onBpFormChange("time")} className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-slate-900 shadow-sm focus:border-sky-300 focus:outline-none" />
+              </label>
+            </div>
             <div className="grid gap-4 sm:grid-cols-2">
               <label className="block text-sm text-slate-600">
                 Systolic
@@ -1226,11 +1244,11 @@ function BloodPressurePage({
           <h3 className="text-xl font-semibold text-slate-950">Blood pressure trend</h3>
           <div className="mt-4 h-72">
             <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={sortedEntries} margin={{ top: 16, right: 28, left: 0, bottom: 0 }}>
+              <LineChart data={chartEntries} margin={{ top: 16, right: 28, left: 0, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                <XAxis dataKey="date" tickLine={false} axisLine={false} tickFormatter={formatDateNumeric} />
+                <XAxis dataKey="recordedAt" tickLine={false} axisLine={false} tickFormatter={formatBloodPressureChartLabel} />
                 <YAxis domain={["dataMin - 10", "dataMax + 10"]} tickLine={false} axisLine={false} />
-                <Tooltip labelFormatter={formatDateNumeric} />
+                <Tooltip labelFormatter={formatBloodPressureChartLabel} />
                 <Line type="monotone" dataKey="systolic" name="Systolic" stroke="#e11d48" strokeWidth={4} dot={{ r: 4 }} activeDot={{ r: 6 }} />
                 <Line type="monotone" dataKey="diastolic" name="Diastolic" stroke="#0284c7" strokeWidth={4} dot={{ r: 4 }} activeDot={{ r: 6 }} />
               </LineChart>
@@ -1239,7 +1257,7 @@ function BloodPressurePage({
         </div>
       </div>
 
-      <div className="grid items-stretch gap-6 lg:grid-cols-2">
+      <div>
         <div className={`flex h-full flex-col rounded-3xl p-6 shadow-lg shadow-slate-200/60 ring-1 ${latestStatus.tone}`}>
           <div className="flex items-start justify-between gap-4">
             <div>
@@ -1250,21 +1268,6 @@ function BloodPressurePage({
           </div>
           <p className="mt-5 text-sm leading-7 opacity-85">{latestEntry ? latestStatus.note : "Add your first blood pressure reading to start tracking."}</p>
         </div>
-
-        <div className="flex h-full flex-col rounded-3xl bg-white/80 p-6 shadow-lg shadow-slate-200/60 ring-1 ring-slate-100">
-          <h3 className="text-xl font-semibold text-slate-950">Reading movement</h3>
-          <div className="mt-5 grid gap-4 sm:grid-cols-2">
-            <div className="rounded-3xl bg-slate-50 p-4">
-              <p className="text-sm text-slate-500">Systolic change</p>
-              <p className="mt-3 text-3xl font-bold text-slate-950">{systolicChange === null ? "--" : `${systolicChange > 0 ? "+" : ""}${systolicChange}`}</p>
-            </div>
-            <div className="rounded-3xl bg-slate-50 p-4">
-              <p className="text-sm text-slate-500">Diastolic change</p>
-              <p className="mt-3 text-3xl font-bold text-slate-950">{diastolicChange === null ? "--" : `${diastolicChange > 0 ? "+" : ""}${diastolicChange}`}</p>
-            </div>
-          </div>
-          <p className="mt-4 text-sm text-slate-500">Changes compare your latest reading with the previous logged date.</p>
-        </div>
       </div>
 
       <div className="rounded-3xl bg-white/80 p-5 shadow-lg shadow-slate-200/60 ring-1 ring-slate-100">
@@ -1274,6 +1277,7 @@ function BloodPressurePage({
             <thead>
               <tr>
                 <th className="px-3 py-3 font-semibold text-slate-500">Date</th>
+                <th className="px-3 py-3 font-semibold text-slate-500">Time</th>
                 <th className="px-3 py-3 font-semibold text-slate-500">Reading</th>
                 <th className="px-3 py-3 font-semibold text-slate-500">Pulse</th>
                 <th className="px-3 py-3 font-semibold text-slate-500">Status</th>
@@ -1287,6 +1291,7 @@ function BloodPressurePage({
                 return (
                   <tr key={entry.id}>
                     <td className="px-3 py-3">{formatDateNumeric(entry.date)}</td>
+                    <td className="px-3 py-3">{entry.time || "00:00"}</td>
                     <td className="px-3 py-3 font-semibold">{entry.systolic}/{entry.diastolic}</td>
                     <td className="px-3 py-3">{entry.pulse ? `${entry.pulse} bpm` : "--"}</td>
                     <td className="px-3 py-3">{status.label}</td>
@@ -1319,7 +1324,7 @@ export default function App() {
   const [bloodPressureEntries, setBloodPressureEntries] = useState(() => fallbackAppState.bloodPressureEntries);
   const [form, setForm] = useState({ meal: "Snack", items: "", kcal: "", protein: "", fibre: "" });
   const [weightForm, setWeightForm] = useState({ date: "", weight: "" });
-  const [bpForm, setBpForm] = useState({ date: "", systolic: "", diastolic: "", pulse: "", notes: "" });
+  const [bpForm, setBpForm] = useState({ date: "", time: "", systolic: "", diastolic: "", pulse: "", notes: "" });
   const [isDatabaseReady, setIsDatabaseReady] = useState(false);
   const [storageStatus, setStorageStatus] = useState("Opening database");
   const [confettiPieces, setConfettiPieces] = useState([]);
@@ -1500,14 +1505,14 @@ export default function App() {
   const handleBpFormChange = (field) => (event) => setBpForm((prev) => ({ ...prev, [field]: event.target.value }));
   const handleAddBloodPressure = (event) => {
     event.preventDefault();
-    if (!bpForm.date || !bpForm.systolic || !bpForm.diastolic) return;
+    if (!bpForm.date || !bpForm.time || !bpForm.systolic || !bpForm.diastolic) return;
     const systolic = safeNumber(bpForm.systolic);
     const diastolic = safeNumber(bpForm.diastolic);
     const pulse = bpForm.pulse === "" ? "" : safeNumber(bpForm.pulse);
     if (systolic < 50 || systolic > 260 || diastolic < 30 || diastolic > 160) return;
     if (pulse !== "" && (pulse < 30 || pulse > 220)) return;
     setBloodPressureEntries((prev) => sortBloodPressureEntries(upsertBloodPressureEntry(prev, { ...bpForm, systolic, diastolic, pulse })));
-    setBpForm({ date: "", systolic: "", diastolic: "", pulse: "", notes: "" });
+    setBpForm({ date: "", time: "", systolic: "", diastolic: "", pulse: "", notes: "" });
   };
   const handleDeleteBloodPressure = (id) => setBloodPressureEntries((prev) => prev.filter((entry) => entry.id !== id));
   const openWeightPage = () => setCurrentPage("weight");
