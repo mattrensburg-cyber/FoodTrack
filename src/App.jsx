@@ -2043,7 +2043,64 @@ function WeightPage({
                 </label>
               ))}
             </div>
-=m fgtrdvccx vgs2``34           <button type="button" onClick={onSaveGoals} className="mt-5 inline-flex w-full items-center justify-center rounded-2xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white shadow-lg transition hover:bg-slate-800 sm:w-auto">Save goals</button>
+            <div className="mt-5">
+              <button type="button" onClick={onSaveGoals} className="inline-flex w-full items-center justify-center rounded-2xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white shadow-lg transition hover:bg-slate-800 sm:w-auto">Save goals</button>
+            </div>
+
+            <div className="mt-6">
+              <h4 className="text-sm font-semibold text-slate-700">Goal preview</h4>
+              <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-5">
+                <div className="rounded-2xl bg-slate-50 p-3 text-center">
+                  <p className="text-xs text-slate-500">Current BMI</p>
+                  <p className="mt-1 text-lg font-bold text-slate-900">{bmi.toFixed(1)}</p>
+                  <p className="text-xs text-slate-400">Current weight</p>
+                </div>
+
+                <div className="rounded-2xl bg-emerald-50 p-3 text-center">
+                  <p className="text-xs text-slate-500">Goal BMI</p>
+                  <p className="mt-1 text-lg font-bold text-slate-900">{calculateBMI(weightGoals.goalWeight, bmiProfile.heightCm).toFixed(1)}</p>
+                  <p className="text-xs text-slate-400">At {weightGoals.goalWeight.toFixed(1)} kg</p>
+                </div>
+
+                <div className="rounded-2xl bg-rose-50 p-3 text-center">
+                  <p className="text-xs text-slate-500">To lose</p>
+                  <p className="mt-1 text-lg font-bold text-slate-900">{Math.max(0, (currentWeight - weightGoals.goalWeight)).toFixed(0)} kg</p>
+                  <p className="text-xs text-slate-400">To goal</p>
+                </div>
+
+                <div className="rounded-2xl bg-sky-50 p-3 text-center">
+                  <p className="text-xs text-slate-500">Estimate</p>
+                  <p className="mt-1 text-lg font-bold text-slate-900">{estimatedWeeks.fast} to {estimatedWeeks.slow} <span className="text-xs">weeks</span></p>
+                  <p className="text-xs text-slate-400">At target pace</p>
+                </div>
+
+                <div className="rounded-2xl bg-white p-3 text-center ring-1 ring-slate-100">
+                  <p className="text-xs text-slate-500">Healthy range</p>
+                  <p className="mt-1 text-lg font-bold text-slate-900">{bmiRange.lower}-{bmiRange.upper}</p>
+                  <p className="text-xs text-slate-400">kg for height</p>
+                </div>
+              </div>
+
+              <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                <div className="rounded-2xl bg-slate-50 p-3">
+                  <p className="text-xs text-slate-500">First 5% loss</p>
+                  <p className="mt-2 text-sm font-semibold text-slate-900">{(weightGoals.startingWeight * 0.95).toFixed(1)} kg</p>
+                  <p className="text-xs text-slate-400">Remaining {Math.max(0, (weightGoals.startingWeight * 0.95) - currentWeight).toFixed(1)} kg</p>
+                </div>
+
+                <div className="rounded-2xl bg-slate-50 p-3">
+                  <p className="text-xs text-slate-500">10% loss</p>
+                  <p className="mt-2 text-sm font-semibold text-slate-900">{(weightGoals.startingWeight * 0.9).toFixed(1)} kg</p>
+                  <p className="text-xs text-slate-400">Remaining {Math.max(0, (weightGoals.startingWeight * 0.9) - currentWeight).toFixed(1)} kg</p>
+                </div>
+
+                <div className="rounded-2xl bg-slate-50 p-3">
+                  <p className="text-xs text-slate-500">Under BMI 35</p>
+                  <p className="mt-2 text-sm font-semibold text-slate-900">{calculateHealthyWeightRange(bmiProfile.heightCm).upper.toFixed(1)} kg</p>
+                  <p className="text-xs text-slate-400">BMI milestone</p>
+                </div>
+              </div>
+            </div>
           </div>
 
           <div>
