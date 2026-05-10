@@ -191,6 +191,44 @@ function normalizeNutriEntry(item, context = {}) {
   };
 }
 
+function pickNumericValue(source = {}, keys = []) {
+  for (const key of keys) {
+    if (Number.isFinite(Number(source[key]))) return safeNumber(source[key]);
+  }
+  return undefined;
+}
+
+function normalizeMealSummaryEntry(entry, payload = {}) {
+  const day = normalizeImportDay(payload.day) || normalizeImportDay(entry.day);
+  if (!day) return null;
+
+  const totals = normalizePlainObject(entry.totals || entry.dailyTotals);
+  const kcal = pickNumericValue(totals, ["kcal", "caloriesKcal", "calories"]) ?? pickNumericValue(entry, ["kcal", "caloriesKcal", "calories"]);
+  if (!Number.isFinite(Number(kcal))) return null;
+
+  const recipeName = String(entry.recipeName || entry.name || entry.meal || "Meal summary").trim();
+  const fibre = pickNumericValue(totals, ["fibre", "fibre_g", "fiber", "fiber_g"]) ?? pickNumericValue(entry, ["fibre", "fibreG", "fibre_g", "fiber", "fiberG", "fiber_g"]);
+  const protein = pickNumericValue(totals, ["protein", "protein_g", "proteinG"]) ?? pickNumericValue(entry, ["protein", "protein_g", "proteinG"]);
+
+  return {
+    id: crypto.randomUUID(),
+    day,
+    meal: entry.meal || "",
+    recipeName,
+    tag: entry.tag || "Recipe",
+    notes: entry.notes || {},
+    dailyNotes: payload.dailyNotes || {},
+    ingredient: recipeName,
+    grams: 1,
+    unit: "meal",
+    kcal,
+    protein,
+    fibreG: fibre,
+    fibrePer100g: fibre,
+    healthHighlights: Array.isArray(entry.healthHighlights) ? entry.healthHighlights.map(String).filter(Boolean) : [],
+  };
+}
+
 function normalizeGithubNutriPayload(payload) {
   if (payload?.type === "nutritrack_import" && Array.isArray(payload.items)) {
     return payload.items
@@ -218,7 +256,10 @@ function normalizeGithubNutriPayload(payload) {
 
   if (normalizeImportDay(payload?.day) && Array.isArray(payload.entries)) {
     return payload.entries.flatMap((entry) => {
-      if (!Array.isArray(entry.ingredients)) return [];
+      if (!Array.isArray(entry.ingredients)) {
+        const summaryEntry = normalizeMealSummaryEntry(entry, payload);
+        return summaryEntry ? [summaryEntry] : [];
+      }
       return entry.ingredients
         .map((item) => normalizeNutriEntry(item, {
           day: payload.day,
@@ -233,6 +274,37 @@ function normalizeGithubNutriPayload(payload) {
   }
 
   return [];
+}
+
+function getNutriEntryImportKey(entry) {
+  return [
+    normalizeImportDay(entry?.day),
+    String(entry?.meal || "").trim().toLowerCase(),
+    String(entry?.recipeName || "").trim().toLowerCase(),
+    String(entry?.ingredient || "").trim().toLowerCase(),
+    String(entry?.unit || "g").trim().toLowerCase(),
+    safeNumber(entry?.grams),
+    safeNumber(entry?.kcal),
+  ].join("|");
+}
+
+function mergeNutriEntries(existingEntries, importedEntries) {
+  const byKey = new Map();
+
+  (Array.isArray(existingEntries) ? existingEntries : []).forEach((entry) => {
+    byKey.set(getNutriEntryImportKey(entry), entry);
+  });
+
+  importedEntries.forEach((entry) => {
+    byKey.set(getNutriEntryImportKey(entry), entry);
+  });
+
+  const dayIndex = new Map(weekDays.map((day, index) => [day, index]));
+  return [...byKey.values()].sort((a, b) => {
+    const dayDelta = (dayIndex.get(normalizeImportDay(a.day)) ?? 99) - (dayIndex.get(normalizeImportDay(b.day)) ?? 99);
+    if (dayDelta) return dayDelta;
+    return String(a.meal || "").localeCompare(String(b.meal || "")) || String(a.recipeName || "").localeCompare(String(b.recipeName || ""));
+  });
 }
 
 function normalizeNutriReferenceFromEntry(entry) {
@@ -318,10 +390,14 @@ function upsertWeightEntries(existingWeights, importedWeights) {
   return [...byDate.values()].sort((a, b) => new Date(a.date) - new Date(b.date));
 }
 
-function readPendingPayload(rawJson) {
+function readPendingPayload(rawJson, sourceFile = "") {
   const payload = JSON.parse(rawJson);
+  const entries = normalizeGithubNutriPayload(payload).map((entry) => ({
+    ...entry,
+    sourceFile: sourceFile || entry.sourceFile || "",
+  }));
   return {
-    entries: normalizeGithubNutriPayload(payload),
+    entries,
     weights: normalizeGithubWeightPayload(payload),
   };
 }
@@ -447,8 +523,12 @@ app.post("/api/github/sync-nutritrack", async (_request, response) => {
     const repo = process.env.GITHUB_REPO;
     const branch = process.env.GITHUB_BRANCH;
     const localPendingDir = path.join(rootDir, githubPendingPath);
+    const localSyncedDir = path.join(rootDir, githubSyncedPath);
     fs.mkdirSync(localPendingDir, { recursive: true });
+    fs.mkdirSync(localSyncedDir, { recursive: true });
     const localJsonFiles = fs.readdirSync(localPendingDir, { withFileTypes: true })
+      .filter((file) => file.isFile() && file.name.toLowerCase().endsWith(".json"));
+    const localSyncedJsonFiles = fs.readdirSync(localSyncedDir, { withFileTypes: true })
       .filter((file) => file.isFile() && file.name.toLowerCase().endsWith(".json"));
 
     const current = db
@@ -478,7 +558,7 @@ app.post("/api/github/sync-nutritrack", async (_request, response) => {
       file.type === "file" && file.name.endsWith(".json")
     );
 
-    if (!jsonFiles.length && !localJsonFiles.length) {
+    if (!jsonFiles.length && !localJsonFiles.length && !localSyncedJsonFiles.length) {
       return response.json({ ok: true, imported: 0, weightsImported: 0, files: 0, message: "No pending imports." });
     }
 
@@ -488,7 +568,7 @@ app.post("/api/github/sync-nutritrack", async (_request, response) => {
       );
 
       const rawJson = decodeBase64Content(fileData.content);
-      const parsed = readPendingPayload(rawJson);
+      const parsed = readPendingPayload(rawJson, file.name);
 
       importedEntries.push(...parsed.entries);
       importedWeights.push(...parsed.weights);
@@ -526,7 +606,7 @@ app.post("/api/github/sync-nutritrack", async (_request, response) => {
     for (const file of localJsonFiles) {
       const localPath = path.join(localPendingDir, file.name);
       const rawJson = fs.readFileSync(localPath, "utf8");
-      const parsed = readPendingPayload(rawJson);
+      const parsed = readPendingPayload(rawJson, file.name);
       importedEntries.push(...parsed.entries);
       importedWeights.push(...parsed.weights);
 
@@ -539,11 +619,29 @@ app.post("/api/github/sync-nutritrack", async (_request, response) => {
       });
     }
 
+    for (const file of localSyncedJsonFiles) {
+      const localPath = path.join(localSyncedDir, file.name);
+      const rawJson = fs.readFileSync(localPath, "utf8");
+      const parsed = readPendingPayload(rawJson, file.name);
+      importedEntries.push(...parsed.entries);
+      importedWeights.push(...parsed.weights);
+      if (parsed.entries.length || parsed.weights.length) {
+        syncedFiles.push({
+          filename: file.name,
+          source: "local-synced-backfill",
+          to: path.relative(rootDir, localPath).replace(/\\/g, "/"),
+        });
+      }
+    }
+
+    const mergedNutriEntries = mergeNutriEntries(existingEntries, importedEntries);
+    const mergedWeights = upsertWeightEntries(existingWeights, importedWeights);
+
     const nextState = {
       ...appState,
-      nutriEntries: [...existingEntries, ...importedEntries],
+      nutriEntries: mergedNutriEntries,
       nutriReferences: mergeNutriReferences(existingReferences, importedEntries),
-      weights: upsertWeightEntries(existingWeights, importedWeights),
+      weights: mergedWeights,
       savedAt: new Date().toISOString(),
     };
 
@@ -561,8 +659,8 @@ app.post("/api/github/sync-nutritrack", async (_request, response) => {
 
     response.json({
       ok: true,
-      imported: importedEntries.length,
-      weightsImported: importedWeights.length,
+      imported: Math.max(0, mergedNutriEntries.length - existingEntries.length),
+      weightsImported: Math.max(0, mergedWeights.length - existingWeights.length),
       files: syncedFiles.length,
       syncedFiles,
     });
