@@ -987,7 +987,7 @@ function buildRecipeCards(entries, references = []) {
     .filter((entry) => String(entry.tag || "").toLowerCase() !== "supplement")
     .forEach((entry) => {
       const title = entry.recipeName || `${entry.meal} recipe`;
-      const key = `${entry.meal}|${title}|${entry.tag || "Recipe"}`.toLowerCase();
+      const key = getRecipeCardKey(entry);
       const current = grouped.get(key) || {
         id: key,
         title,
@@ -1007,6 +1007,11 @@ function buildRecipeCards(entries, references = []) {
     imageUrl: getRecipeImageSvg(recipe),
     analysis: calculateNutriAnalysis(recipe.ingredients, references),
   })).sort((a, b) => a.title.localeCompare(b.title) || a.meal.localeCompare(b.meal));
+}
+
+function getRecipeCardKey(entry) {
+  const title = entry.recipeName || `${entry.meal} recipe`;
+  return `${entry.meal || ""}|${title}|${entry.tag || "Recipe"}`.toLowerCase();
 }
 
 function getFoodCategory(name) {
@@ -3161,7 +3166,7 @@ function NutriTrackPage({
   );
 }
 
-function RecipesPage({ recipes, onAddRecipeToDay, onRenameRecipe, onBack }) {
+function RecipesPage({ recipes, onAddRecipeToDay, onRenameRecipe, onDeleteRecipe, onDeleteRecipeIngredient, onBack }) {
   const [targetDays, setTargetDays] = useState({});
   const [recipeNames, setRecipeNames] = useState({});
   const [editingRecipeId, setEditingRecipeId] = useState("");
@@ -3187,6 +3192,14 @@ function RecipesPage({ recipes, onAddRecipeToDay, onRenameRecipe, onBack }) {
     }
     onRenameRecipe(recipe, nextName);
     clearRecipeNameDraft(recipe.id);
+  };
+  const deleteRecipe = (recipe) => {
+    if (typeof window !== "undefined" && !window.confirm(`Delete ${recipe.title} from recipe cards and NutriTrack?`)) return;
+    onDeleteRecipe(recipe);
+  };
+  const deleteIngredient = (entry) => {
+    if (typeof window !== "undefined" && !window.confirm(`Delete ${entry.ingredient} from this recipe?`)) return;
+    onDeleteRecipeIngredient(entry.id);
   };
 
   return (
@@ -3252,11 +3265,30 @@ function RecipesPage({ recipes, onAddRecipeToDay, onRenameRecipe, onBack }) {
               </div>
 
               <div className="mt-4">
-                <p className="text-sm font-semibold text-slate-950">Ingredients</p>
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-sm font-semibold text-slate-950">Ingredients</p>
+                  <button
+                    type="button"
+                    onClick={() => deleteRecipe(recipe)}
+                    className="rounded-full bg-rose-50 px-3 py-1 text-xs font-semibold text-rose-700 ring-1 ring-rose-100 transition hover:bg-rose-100"
+                  >
+                    Delete recipe
+                  </button>
+                </div>
                 <div className="mt-3 flex flex-wrap gap-2">
                   {recipe.ingredients.map((entry) => (
-                    <span key={entry.id} className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
-                      <span className="mr-1" aria-hidden="true">{getIngredientEmoji(entry.ingredient)}</span>{entry.ingredient} / {formatNutriAmount(entry)}
+                    <span key={entry.id} className="inline-flex items-center gap-2 rounded-full bg-slate-100 py-1 pl-3 pr-1 text-xs font-semibold text-slate-700">
+                      <span>
+                        <span className="mr-1" aria-hidden="true">{getIngredientEmoji(entry.ingredient)}</span>{entry.ingredient} / {formatNutriAmount(entry)}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => deleteIngredient(entry)}
+                        className="grid h-5 w-5 place-items-center rounded-full bg-white text-slate-500 ring-1 ring-slate-200 transition hover:bg-rose-50 hover:text-rose-700 hover:ring-rose-100"
+                        aria-label={`Delete ${entry.ingredient}`}
+                      >
+                        x
+                      </button>
                     </span>
                   ))}
                 </div>
@@ -3909,7 +3941,13 @@ export default function App() {
     setNutriEntries((prev) => sortNutriEntries([...prev, { id: createId(), day: nutriForm.day, ingredient, grams, kcal }]));
     setNutriForm((prev) => ({ day: prev.day, ingredient: "", grams: "", kcal: "" }));
   };
-  const handleDeleteNutriEntry = (id) => setNutriEntries((prev) => prev.filter((entry) => entry.id !== id));
+  const handleDeleteNutriEntry = (id) => {
+    setNutriEntries((prev) => prev.filter((entry) => entry.id !== id));
+    setNutriWeekArchives((prev) => prev.map((archive) => ({
+      ...archive,
+      entries: sortNutriEntries((archive.entries || []).filter((entry) => entry.id !== id)),
+    })));
+  };
   const handleUpdateNutriEntry = (id, changes) => {
     setNutriEntries((prev) => sortNutriEntries(prev.map((entry) => (
       entry.id === id
@@ -4136,6 +4174,20 @@ export default function App() {
     })));
     setNutriImportStatus(`Renamed recipe to ${title}.`);
     return title;
+  };
+  const handleDeleteRecipe = (recipe) => {
+    if (!recipe?.id) return;
+    const removeRecipeEntries = (entries) => sortNutriEntries((entries || []).filter((entry) => getRecipeCardKey(entry) !== recipe.id));
+    setNutriEntries((prev) => removeRecipeEntries(prev));
+    setNutriWeekArchives((prev) => prev.map((archive) => ({
+      ...archive,
+      entries: removeRecipeEntries(archive.entries),
+    })));
+    setNutriImportStatus(`Deleted recipe ${recipe.title}.`);
+  };
+  const handleDeleteRecipeIngredient = (id) => {
+    handleDeleteNutriEntry(id);
+    setNutriImportStatus("Deleted ingredient from recipe.");
   };
   const openWeightPage = () => setCurrentPage("weight");
   const openBloodPressurePage = () => setCurrentPage("bloodPressure");
@@ -4434,6 +4486,8 @@ export default function App() {
             recipes={recipeCards}
             onAddRecipeToDay={handleAddRecipeToDay}
             onRenameRecipe={handleRenameRecipe}
+            onDeleteRecipe={handleDeleteRecipe}
+            onDeleteRecipeIngredient={handleDeleteRecipeIngredient}
             onBack={openDashboardPage}
           />
         )}
