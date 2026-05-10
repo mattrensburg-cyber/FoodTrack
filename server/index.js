@@ -427,6 +427,22 @@ function getLocalSyncedPath(filename) {
   return syncedPath;
 }
 
+function copyLocalImportToSynced(localPath, filename) {
+  const syncedPath = getLocalSyncedPath(filename);
+  fs.copyFileSync(localPath, syncedPath);
+
+  try {
+    fs.unlinkSync(localPath);
+    return { syncedPath, pendingRemoved: true, warning: "" };
+  } catch (error) {
+    return {
+      syncedPath,
+      pendingRemoved: false,
+      warning: error instanceof Error ? error.message : "Pending file could not be removed after syncing.",
+    };
+  }
+}
+
 const app = express();
 app.use(express.json({ limit: "25mb" }));
 
@@ -563,6 +579,7 @@ app.post("/api/github/sync-nutritrack", async (_request, response) => {
     const importedEntries = [];
     const importedWeights = [];
     const syncedFiles = [];
+    const warnings = [];
 
     const pendingFiles = await githubRequest(
       `/repos/${owner}/${repo}/contents/ai-imports/pending?ref=${encodeURIComponent(branch)}`
@@ -624,12 +641,13 @@ app.post("/api/github/sync-nutritrack", async (_request, response) => {
       importedEntries.push(...parsed.entries);
       importedWeights.push(...parsed.weights);
 
-      const syncedPath = getLocalSyncedPath(file.name);
-      fs.renameSync(localPath, syncedPath);
+      const { syncedPath, pendingRemoved, warning } = copyLocalImportToSynced(localPath, file.name);
+      if (warning) warnings.push(`${file.name}: ${warning}`);
       syncedFiles.push({
         filename: file.name,
         source: "local",
         to: path.relative(rootDir, syncedPath).replace(/\\/g, "/"),
+        pendingRemoved,
       });
     }
 
@@ -677,6 +695,7 @@ app.post("/api/github/sync-nutritrack", async (_request, response) => {
       weightsImported: Math.max(0, mergedWeights.length - existingWeights.length),
       files: syncedFiles.length,
       syncedFiles,
+      warnings,
     });
   } catch (error) {
     response.status(500).json({

@@ -1092,8 +1092,29 @@ function buildFoodDatabase(references = [], favorites = {}, categoryOverrides = 
 
   return [...foods.values()]
     .filter((food) => !deletedFoods[food.name])
+    .map(applyFoodPortionOverrides)
     .map((food) => ({ ...food, favorite: Boolean(favorites[food.name]) }))
     .sort((a, b) => Number(b.favorite) - Number(a.favorite) || a.name.localeCompare(b.name));
+}
+
+function applyFoodPortionOverrides(food) {
+  if (String(food?.name || "").trim().toLowerCase() !== "white sugar") return food;
+  return {
+    ...food,
+    kcal: 16,
+    protein: 0,
+    carbs: 4,
+    fat: 0,
+    fibre: 0,
+    sugar: 4,
+    portion: 1,
+    unit: "tsp",
+    gutHealth: "No fibre or protein; useful to track by teaspoon.",
+  };
+}
+
+function getFoodNutritionBasis(food) {
+  return food.unit === "tsp" ? "Per tsp" : "Per 100g or 100ml where saved from the label";
 }
 
 function calculatePortionValue(food, key) {
@@ -3494,7 +3515,7 @@ function FoodDatabasePage({ foods, selectedDay, customCategories, onAddFoodToNut
                     <div className="mt-4 space-y-3 border-t border-slate-100 pt-4">
                       <div className="rounded-xl bg-slate-50 p-3">
                         <p className="text-xs font-semibold text-slate-950">Nutritional information</p>
-                        <p className="mt-1 text-[11px] font-semibold text-slate-500">Per 100g or 100ml where saved from the label</p>
+                        <p className="mt-1 text-[11px] font-semibold text-slate-500">{getFoodNutritionBasis(food)}</p>
                         <div className="mt-3 grid grid-cols-2 gap-2">
                         {[
                           ["Kcal", "kcal", food.kcal, ""],
