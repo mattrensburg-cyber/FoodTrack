@@ -371,6 +371,11 @@ function normalizeStringList(value) {
 
 function getProductMetadata(item = {}) {
   return {
+    barcode: String(item.barcode || item.gtin || item.ean || item.upc || "").trim(),
+    imageUrl: String(item.imageUrl || item.image_url || "").trim(),
+    imageThumbUrl: String(item.imageThumbUrl || item.image_thumb_url || "").trim(),
+    ingredientsImageUrl: String(item.ingredientsImageUrl || item.ingredients_image_url || "").trim(),
+    nutritionImageUrl: String(item.nutritionImageUrl || item.nutrition_image_url || "").trim(),
     brand: String(item.brand || item.brandName || "").trim(),
     brandName: String(item.brandName || item.brand || "").trim(),
     productName: String(item.productName || "").trim(),
@@ -756,6 +761,14 @@ function getBrandNutritionBlocks(item = {}) {
   ].filter(([, values]) => values && typeof values === "object" && Object.keys(values).length > 0);
 }
 
+function getProductImageLinks(item = {}) {
+  return [
+    ["Product", item.imageUrl || item.imageThumbUrl],
+    ["Ingredients", item.ingredientsImageUrl],
+    ["Nutrition", item.nutritionImageUrl],
+  ].filter(([, url]) => String(url || "").trim());
+}
+
 function formatMicronutrientLabel(value) {
   if (typeof value !== "string") return String(value || "");
   const match = value.match(/^(.+?)_(g|mg|ug)$/);
@@ -1001,6 +1014,11 @@ function buildFoodDatabase(references = [], favorites = {}, categoryOverrides = 
     const overrides = nutritionOverrides[name] || {};
     foods.set(name.toLowerCase(), {
       name,
+      barcode: reference.barcode || existing?.barcode || "",
+      imageUrl: reference.imageUrl || existing?.imageUrl || "",
+      imageThumbUrl: reference.imageThumbUrl || existing?.imageThumbUrl || "",
+      ingredientsImageUrl: reference.ingredientsImageUrl || existing?.ingredientsImageUrl || "",
+      nutritionImageUrl: reference.nutritionImageUrl || existing?.nutritionImageUrl || "",
       brand: reference.brand || existing?.brand || "",
       brandName: reference.brandName || existing?.brandName || "",
       productName: reference.productName || existing?.productName || "",
@@ -2606,10 +2624,31 @@ function NutriTrackPage({
                 </span>
               </div>
               <div className="mt-4 grid gap-3 md:grid-cols-2">
-                {(entry.brand || entry.productName || entry.nutritionSource || entry.processingLevel || entry.ingredientsList?.length || entry.reference?.brand || entry.reference?.productName || entry.reference?.nutritionSource || entry.reference?.processingLevel || entry.reference?.ingredientsList?.length) && (
+                {(entry.barcode || entry.imageUrl || entry.imageThumbUrl || entry.ingredientsImageUrl || entry.nutritionImageUrl || entry.brand || entry.productName || entry.nutritionSource || entry.processingLevel || entry.ingredientsList?.length || entry.reference?.barcode || entry.reference?.imageUrl || entry.reference?.imageThumbUrl || entry.reference?.ingredientsImageUrl || entry.reference?.nutritionImageUrl || entry.reference?.brand || entry.reference?.productName || entry.reference?.nutritionSource || entry.reference?.processingLevel || entry.reference?.ingredientsList?.length) && (
                   <div className="rounded-2xl bg-white p-4 text-sm text-slate-600 shadow-sm ring-1 ring-slate-100">
                     <h4 className="font-semibold text-slate-950">Product details</h4>
                     <div className="mt-3 grid gap-2">
+                      {getProductImageLinks({
+                        imageUrl: entry.imageUrl || entry.reference?.imageUrl,
+                        imageThumbUrl: entry.imageThumbUrl || entry.reference?.imageThumbUrl,
+                        ingredientsImageUrl: entry.ingredientsImageUrl || entry.reference?.ingredientsImageUrl,
+                        nutritionImageUrl: entry.nutritionImageUrl || entry.reference?.nutritionImageUrl,
+                      }).length > 0 && (
+                        <div className="grid grid-cols-3 gap-2">
+                          {getProductImageLinks({
+                            imageUrl: entry.imageUrl || entry.reference?.imageUrl,
+                            imageThumbUrl: entry.imageThumbUrl || entry.reference?.imageThumbUrl,
+                            ingredientsImageUrl: entry.ingredientsImageUrl || entry.reference?.ingredientsImageUrl,
+                            nutritionImageUrl: entry.nutritionImageUrl || entry.reference?.nutritionImageUrl,
+                          }).map(([label, url]) => (
+                            <a key={label} href={url} target="_blank" rel="noreferrer" className="block overflow-hidden rounded-xl bg-slate-100 ring-1 ring-slate-100">
+                              <img src={url} alt={`${entry.ingredient} ${label.toLowerCase()}`} className="aspect-square w-full object-cover" loading="lazy" />
+                              <span className="block px-2 py-1 text-center text-[10px] font-semibold text-slate-600">{label}</span>
+                            </a>
+                          ))}
+                        </div>
+                      )}
+                      {(entry.barcode || entry.reference?.barcode) && <p><span className="font-semibold text-slate-800">Barcode:</span> {entry.barcode || entry.reference?.barcode}</p>}
                       {(entry.brand || entry.reference?.brand) && <p><span className="font-semibold text-slate-800">Brand:</span> {entry.brand || entry.reference?.brand}</p>}
                       {(entry.productName || entry.reference?.productName) && <p><span className="font-semibold text-slate-800">Product:</span> {entry.productName || entry.reference?.productName}</p>}
                       {(entry.nutritionSource || entry.reference?.nutritionSource) && <p><span className="font-semibold text-slate-800">Nutrition source:</span> {entry.nutritionSource || entry.reference?.nutritionSource}</p>}
@@ -2992,7 +3031,7 @@ function FoodDatabasePage({ foods, selectedDay, customCategories, onAddFoodToNut
   const categories = ["All", ...defaultFoodCategories, ...customCategories.filter((item) => !defaultFoodCategories.includes(item))];
   const filteredFoods = foods.filter((food) => {
     const matchesCategory = category === "All" || food.category === category;
-    const matchesSearch = `${food.name} ${food.brand} ${food.productName} ${food.category} ${food.gutHealth} ${food.nutritionSource}`.toLowerCase().includes(search.trim().toLowerCase());
+    const matchesSearch = `${food.name} ${food.barcode} ${food.brand} ${food.productName} ${food.category} ${food.gutHealth} ${food.nutritionSource}`.toLowerCase().includes(search.trim().toLowerCase());
     return matchesCategory && matchesSearch;
   });
   const groupedFoods = filteredFoods.reduce((groups, food) => {
@@ -3116,8 +3155,11 @@ function FoodDatabasePage({ foods, selectedDay, customCategories, onAddFoodToNut
                           </div>
                           {food.favorite && <span className="rounded-full bg-amber-50 px-2 py-1 text-[10px] font-semibold text-amber-800 ring-1 ring-amber-100">Saved</span>}
                         </div>
+                        {(food.imageThumbUrl || food.imageUrl) && (
+                          <img src={food.imageThumbUrl || food.imageUrl} alt={food.name} className="mt-3 aspect-[4/3] w-full rounded-xl bg-slate-100 object-cover ring-1 ring-slate-100" loading="lazy" />
+                        )}
                         <h4 className="mt-3 text-base font-bold leading-tight text-slate-950">{food.name}</h4>
-                        {(food.brand || food.productName) && <p className="mt-1 text-[11px] font-semibold text-slate-500">{[food.brand, food.productName].filter(Boolean).join(" / ")}</p>}
+                        {(food.barcode || food.brand || food.productName) && <p className="mt-1 text-[11px] font-semibold text-slate-500">{[food.brand, food.productName, food.barcode].filter(Boolean).join(" / ")}</p>}
                         <p className="mt-3 text-xs font-semibold text-slate-500">{food.kcal} kcal / 100g</p>
                         <p className="mt-1 text-xs text-slate-500">{food.protein}g protein / {food.fibre}g fibre</p>
                       </div>
@@ -3158,9 +3200,20 @@ function FoodDatabasePage({ foods, selectedDay, customCategories, onAddFoodToNut
                         <p className="font-semibold">Common portion</p>
                         <p className="mt-1">{food.portion}{food.unit} = {portionKcal.toFixed(0)} kcal / {portionFibre.toFixed(1)}g fibre</p>
                       </div>
-                      {(food.brand || food.productName || food.nutritionSource || food.processingLevel || food.ingredientsList?.length) && (
+                      {(food.barcode || food.imageUrl || food.imageThumbUrl || food.ingredientsImageUrl || food.nutritionImageUrl || food.brand || food.productName || food.nutritionSource || food.processingLevel || food.ingredientsList?.length) && (
                         <div className="rounded-xl bg-slate-50 p-3 text-xs text-slate-600">
                           <p className="font-semibold text-slate-950">Product details</p>
+                          {getProductImageLinks(food).length > 0 && (
+                            <div className="mb-3 mt-2 grid grid-cols-3 gap-2">
+                              {getProductImageLinks(food).map(([label, url]) => (
+                                <a key={label} href={url} target="_blank" rel="noreferrer" className="block overflow-hidden rounded-lg bg-white ring-1 ring-slate-100">
+                                  <img src={url} alt={`${food.name} ${label.toLowerCase()}`} className="aspect-square w-full object-cover" loading="lazy" />
+                                  <span className="block px-1 py-1 text-center text-[10px] font-semibold text-slate-600">{label}</span>
+                                </a>
+                              ))}
+                            </div>
+                          )}
+                          {food.barcode && <p className="mt-1"><span className="font-semibold">Barcode:</span> {food.barcode}</p>}
                           {food.brand && <p className="mt-1"><span className="font-semibold">Brand:</span> {food.brand}</p>}
                           {food.productName && <p className="mt-1"><span className="font-semibold">Product:</span> {food.productName}</p>}
                           {food.nutritionSource && <p className="mt-1"><span className="font-semibold">Source:</span> {food.nutritionSource}</p>}
@@ -3611,7 +3664,11 @@ export default function App() {
       const databaseState = await readDatabaseRecord(appStateStorageKey);
       if (databaseState) applyDatabaseState(databaseState);
 
-      const message = `Synced ${result.imported} NutriTrack item${result.imported === 1 ? "" : "s"}.`;
+      const syncedParts = [
+        `${result.imported || 0} NutriTrack item${result.imported === 1 ? "" : "s"}`,
+        `${result.weightsImported || 0} weight reading${result.weightsImported === 1 ? "" : "s"}`,
+      ];
+      const message = `Synced ${syncedParts.join(" and ")}.`;
       setNutriImportStatus(message);
       setGithubSyncStatus(result.message || message);
       setStorageStatus("Database loaded");

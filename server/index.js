@@ -85,6 +85,228 @@ function writeAppStateValue(key, value) {
   return updatedAt;
 }
 
+const weekDays = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+
+function safeNumber(value, fallback = 0) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : fallback;
+}
+
+function normalizePlainObject(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+}
+
+function normalizeStringList(value) {
+  if (Array.isArray(value)) return value.map(String).map((item) => item.trim()).filter(Boolean);
+  const text = String(value || "").trim();
+  return text ? [text] : [];
+}
+
+function getProductMetadata(item = {}) {
+  return {
+    barcode: String(item.barcode || item.gtin || item.ean || item.upc || "").trim(),
+    imageUrl: String(item.imageUrl || item.image_url || "").trim(),
+    imageThumbUrl: String(item.imageThumbUrl || item.image_thumb_url || "").trim(),
+    ingredientsImageUrl: String(item.ingredientsImageUrl || item.ingredients_image_url || "").trim(),
+    nutritionImageUrl: String(item.nutritionImageUrl || item.nutrition_image_url || "").trim(),
+    brand: String(item.brand || item.brandName || "").trim(),
+    brandName: String(item.brandName || item.brand || "").trim(),
+    productName: String(item.productName || "").trim(),
+    nutritionSource: String(item.nutritionSource || "").trim(),
+    processingLevel: String(item.processingLevel || item.processing_level || "").trim(),
+    ingredientsList: normalizeStringList(item.ingredientsList || item.ingredients_list),
+    brandNutritionPer100g: normalizePlainObject(item.brandNutritionPer100g),
+    brandNutritionPer100ml: normalizePlainObject(item.brandNutritionPer100ml),
+    brandNutritionPer20g: normalizePlainObject(item.brandNutritionPer20g),
+    brandNutritionPerServing: normalizePlainObject(item.brandNutritionPerServing),
+  };
+}
+
+function normalizeAminoAcidList(items) {
+  if (!Array.isArray(items)) return [];
+  return items
+    .map((item) => {
+      if (typeof item === "string") {
+        const name = item.trim();
+        return name && name !== "[object Object]" ? { name, function: "" } : null;
+      }
+      if (item && typeof item === "object" && !Array.isArray(item)) {
+        const name = String(item.name || item.aminoAcid || "").trim();
+        if (!name) return null;
+        return { name, function: String(item.function || item.benefit || item.role || "").trim() };
+      }
+      return null;
+    })
+    .filter(Boolean);
+}
+
+function normalizeNutriEntry(item, context = {}) {
+  const ingredient = String(item?.ingredient || item?.name || "").trim();
+  if (!ingredient) return null;
+  const day = weekDays.includes(context.day) ? context.day : weekDays.includes(item.day) ? item.day : null;
+  if (!day) return null;
+  const grams = safeNumber(item.grams ?? item.amount);
+  const kcal = safeNumber(item.kcal);
+  if (grams <= 0 || kcal < 0) return null;
+
+  return {
+    id: crypto.randomUUID(),
+    day,
+    meal: context.meal || item.meal || "",
+    recipeName: context.recipeName || item.recipeName || "",
+    tag: context.tag || item.tag || "Recipe",
+    notes: context.notes || item.notes || {},
+    dailyNotes: context.dailyNotes || item.dailyNotes || {},
+    ingredient,
+    grams,
+    unit: item.unit || "g",
+    kcal,
+    ...getProductMetadata(item),
+    micronutrients: normalizePlainObject(item.micronutrients),
+    protein: Number.isFinite(Number(item.protein)) ? safeNumber(item.protein) : undefined,
+    carbs: Number.isFinite(Number(item.carbs ?? item.carbohydrates ?? item.carbohydrate)) ? safeNumber(item.carbs ?? item.carbohydrates ?? item.carbohydrate) : undefined,
+    fat: Number.isFinite(Number(item.fat)) ? safeNumber(item.fat) : undefined,
+    sugar: Number.isFinite(Number(item.sugar ?? item.sugars)) ? safeNumber(item.sugar ?? item.sugars) : undefined,
+    fibreTypes: Array.isArray(item.fibreTypes) ? item.fibreTypes.map(String).filter(Boolean) : [],
+    healthHighlights: Array.isArray(item.healthHighlights) ? item.healthHighlights.map(String).filter(Boolean) : [],
+    aminoAcidProfile: item.aminoAcidProfile && typeof item.aminoAcidProfile === "object" && !Array.isArray(item.aminoAcidProfile)
+      ? {
+          proteinQuality: item.aminoAcidProfile.proteinQuality || "",
+          keyAminoAcids: normalizeAminoAcidList(item.aminoAcidProfile.keyAminoAcids),
+        }
+      : null,
+    fibrePer100g: Number.isFinite(Number(item.fibrePer100g)) ? safeNumber(item.fibrePer100g) : undefined,
+    fibreG: Number.isFinite(Number(item.fibreG ?? item.fibre)) ? safeNumber(item.fibreG ?? item.fibre) : undefined,
+  };
+}
+
+function normalizeGithubNutriPayload(payload) {
+  if (payload?.type === "nutritrack_import" && Array.isArray(payload.items)) {
+    return payload.items
+      .map((item) => normalizeNutriEntry(item, {
+        day: payload.day,
+        meal: payload.meal || "",
+        recipeName: payload.recipeName || "",
+        tag: payload.tag || "Recipe",
+        notes: payload.notes || {},
+      }))
+      .filter(Boolean);
+  }
+
+  if (payload?.meal && Array.isArray(payload.ingredients)) {
+    return payload.ingredients
+      .map((item) => normalizeNutriEntry(item, {
+        day: payload.day,
+        meal: payload.meal || "",
+        recipeName: payload.recipeName || "",
+        tag: payload.tag || "Recipe",
+        notes: payload.notes || {},
+      }))
+      .filter(Boolean);
+  }
+
+  if (weekDays.includes(payload?.day) && Array.isArray(payload.entries)) {
+    return payload.entries.flatMap((entry) => {
+      if (!Array.isArray(entry.ingredients)) return [];
+      return entry.ingredients
+        .map((item) => normalizeNutriEntry(item, {
+          day: payload.day,
+          meal: entry.meal || "",
+          recipeName: entry.recipeName || "",
+          tag: entry.tag || "Recipe",
+          notes: entry.notes || {},
+          dailyNotes: payload.dailyNotes || {},
+        }))
+        .filter(Boolean);
+    });
+  }
+
+  return [];
+}
+
+function normalizeNutriReferenceFromEntry(entry) {
+  const brandPer100 = entry.brandNutritionPer100g || entry.brandNutritionPer100ml || {};
+  const amount = safeNumber(entry.grams);
+  const unit = entry.unit || "g";
+  const isPer100Unit = (unit === "g" || unit === "ml") && amount > 0;
+  const per100Multiplier = isPer100Unit ? 100 / amount : null;
+
+  return {
+    id: crypto.randomUUID(),
+    ingredient: entry.ingredient,
+    ...getProductMetadata(entry),
+    serving: isPer100Unit ? `estimated per 100${unit}` : `per ${amount || 1}${unit}`,
+    nutrition: {
+      caloriesKcal: Number.isFinite(Number(brandPer100.kcal)) ? safeNumber(brandPer100.kcal) : per100Multiplier ? safeNumber(entry.kcal) * per100Multiplier : safeNumber(entry.kcal),
+      proteinG: Number.isFinite(Number(brandPer100.protein_g)) ? safeNumber(brandPer100.protein_g) : per100Multiplier && Number.isFinite(Number(entry.protein)) ? safeNumber(entry.protein) * per100Multiplier : entry.protein,
+      fibreG: Number.isFinite(Number(brandPer100.fibre_g)) ? safeNumber(brandPer100.fibre_g) : entry.fibrePer100g,
+      carbohydratesG: Number.isFinite(Number(brandPer100.carbohydrate_g)) ? safeNumber(brandPer100.carbohydrate_g) : per100Multiplier && Number.isFinite(Number(entry.carbs)) ? safeNumber(entry.carbs) * per100Multiplier : entry.carbs,
+      fatG: Number.isFinite(Number(brandPer100.fat_g)) ? safeNumber(brandPer100.fat_g) : per100Multiplier && Number.isFinite(Number(entry.fat)) ? safeNumber(entry.fat) * per100Multiplier : entry.fat,
+      sugarG: Number.isFinite(Number(brandPer100.sugars_g)) ? safeNumber(brandPer100.sugars_g) : per100Multiplier && Number.isFinite(Number(entry.sugar)) ? safeNumber(entry.sugar) * per100Multiplier : entry.sugar,
+    },
+    keyVitaminsMinerals: Object.keys(entry.micronutrients || {}),
+    fibreTypes: Array.isArray(entry.fibreTypes) ? entry.fibreTypes : [],
+    healthHighlights: Array.isArray(entry.healthHighlights) ? entry.healthHighlights : [],
+    aminoAcidProfile: entry.aminoAcidProfile || null,
+  };
+}
+
+function mergeNutriReferences(existingReferences, importedEntries) {
+  const references = Array.isArray(existingReferences) ? [...existingReferences] : [];
+  const nextByName = new Map(references.map((reference) => [String(reference?.ingredient || "").toLowerCase(), reference]));
+
+  importedEntries.forEach((entry) => {
+    if (!entry?.ingredient) return;
+    nextByName.set(entry.ingredient.toLowerCase(), normalizeNutriReferenceFromEntry(entry));
+  });
+
+  return [...nextByName.values()].sort((a, b) => String(a.ingredient || "").localeCompare(String(b.ingredient || "")));
+}
+
+function normalizeWeightEntry(item = {}) {
+  const date = String(item.date || item.recordedDate || "").trim();
+  const weight = safeNumber(item.weightKg ?? item.weight_kg ?? item.weight);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || weight <= 0 || weight >= 400) return null;
+  return {
+    id: item.id || crypto.randomUUID(),
+    date,
+    weight,
+  };
+}
+
+function normalizeGithubWeightPayload(payload) {
+  if (payload?.type === "foodtrack_weight_import") {
+    const entries = Array.isArray(payload.weights) ? payload.weights : [payload];
+    return entries.map(normalizeWeightEntry).filter(Boolean);
+  }
+
+  if (Array.isArray(payload?.weights)) {
+    return payload.weights.map(normalizeWeightEntry).filter(Boolean);
+  }
+
+  const single = normalizeWeightEntry(payload);
+  return single ? [single] : [];
+}
+
+function upsertWeightEntries(existingWeights, importedWeights) {
+  const byDate = new Map(
+    (Array.isArray(existingWeights) ? existingWeights : [])
+      .filter((entry) => entry?.date && Number.isFinite(Number(entry.weight)))
+      .map((entry) => [entry.date, { ...entry, weight: safeNumber(entry.weight) }])
+  );
+
+  importedWeights.forEach((entry) => {
+    const existing = byDate.get(entry.date);
+    byDate.set(entry.date, {
+      id: existing?.id || entry.id || crypto.randomUUID(),
+      date: entry.date,
+      weight: safeNumber(entry.weight),
+    });
+  });
+
+  return [...byDate.values()].sort((a, b) => new Date(a.date) - new Date(b.date));
+}
+
 const app = express();
 app.use(express.json({ limit: "25mb" }));
 
@@ -215,8 +437,15 @@ app.post("/api/github/sync-nutritrack", async (_request, response) => {
     const existingEntries = Array.isArray(appState.nutriEntries)
       ? appState.nutriEntries
       : [];
+    const existingReferences = Array.isArray(appState.nutriReferences)
+      ? appState.nutriReferences
+      : [];
+    const existingWeights = Array.isArray(appState.weights)
+      ? appState.weights
+      : [];
 
     const importedEntries = [];
+    const importedWeights = [];
 
     for (const file of jsonFiles) {
       const fileData = await githubRequest(
@@ -226,24 +455,11 @@ app.post("/api/github/sync-nutritrack", async (_request, response) => {
       const rawJson = decodeBase64Content(fileData.content);
       const payload = JSON.parse(rawJson);
 
-      const items = Array.isArray(payload.items) ? payload.items : [];
-
-      const newEntries = items.map((item) => ({
-        id: crypto.randomUUID(),
-        day: payload.day,
-        meal: payload.meal || "",
-        recipeName: payload.recipeName || "",
-        tag: payload.tag || "Recipe",
-        ingredient: item.ingredient || item.name,
-        grams: Number(item.grams ?? item.amount),
-        unit: item.unit || "g",
-        kcal: Number(item.kcal || 0),
-        fibrePer100g: Number(item.fibrePer100g || 0),
-        micronutrients: item.micronutrients || {},
-        notes: payload.notes || {},
-      }));
+      const newEntries = normalizeGithubNutriPayload(payload);
+      const newWeights = normalizeGithubWeightPayload(payload);
 
       importedEntries.push(...newEntries);
+      importedWeights.push(...newWeights);
 
       const syncedPath = file.path.replace(
         "ai-imports/pending/",
@@ -272,6 +488,8 @@ app.post("/api/github/sync-nutritrack", async (_request, response) => {
     const nextState = {
       ...appState,
       nutriEntries: [...existingEntries, ...importedEntries],
+      nutriReferences: mergeNutriReferences(existingReferences, importedEntries),
+      weights: upsertWeightEntries(existingWeights, importedWeights),
       savedAt: new Date().toISOString(),
     };
 
@@ -290,6 +508,7 @@ app.post("/api/github/sync-nutritrack", async (_request, response) => {
     response.json({
       ok: true,
       imported: importedEntries.length,
+      weightsImported: importedWeights.length,
       files: jsonFiles.length,
     });
   } catch (error) {
