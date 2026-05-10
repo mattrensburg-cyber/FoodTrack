@@ -86,6 +86,7 @@ function writeAppStateValue(key, value) {
 }
 
 const weekDays = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+const dateWeekDays = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
 function safeNumber(value, fallback = 0) {
   const number = Number(value);
@@ -94,6 +95,16 @@ function safeNumber(value, fallback = 0) {
 
 function normalizePlainObject(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+}
+
+function normalizeImportDay(value) {
+  const text = String(value || "").trim();
+  if (weekDays.includes(text)) return text;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) {
+    const date = new Date(`${text}T00:00:00Z`);
+    if (!Number.isNaN(date.getTime())) return dateWeekDays[date.getUTCDay()];
+  }
+  return "";
 }
 
 function normalizeStringList(value) {
@@ -143,7 +154,7 @@ function normalizeAminoAcidList(items) {
 function normalizeNutriEntry(item, context = {}) {
   const ingredient = String(item?.ingredient || item?.name || "").trim();
   if (!ingredient) return null;
-  const day = weekDays.includes(context.day) ? context.day : weekDays.includes(item.day) ? item.day : null;
+  const day = normalizeImportDay(context.day) || normalizeImportDay(item.day);
   if (!day) return null;
   const grams = safeNumber(item.grams ?? item.amount);
   const kcal = safeNumber(item.kcal);
@@ -205,7 +216,7 @@ function normalizeGithubNutriPayload(payload) {
       .filter(Boolean);
   }
 
-  if (weekDays.includes(payload?.day) && Array.isArray(payload.entries)) {
+  if (normalizeImportDay(payload?.day) && Array.isArray(payload.entries)) {
     return payload.entries.flatMap((entry) => {
       if (!Array.isArray(entry.ingredients)) return [];
       return entry.ingredients
@@ -305,6 +316,25 @@ function upsertWeightEntries(existingWeights, importedWeights) {
   });
 
   return [...byDate.values()].sort((a, b) => new Date(a.date) - new Date(b.date));
+}
+
+function readPendingPayload(rawJson) {
+  const payload = JSON.parse(rawJson);
+  return {
+    entries: normalizeGithubNutriPayload(payload),
+    weights: normalizeGithubWeightPayload(payload),
+  };
+}
+
+function getLocalSyncedPath(filename) {
+  const syncedDir = path.join(rootDir, githubSyncedPath);
+  fs.mkdirSync(syncedDir, { recursive: true });
+  const safeName = path.basename(filename);
+  let syncedPath = path.join(syncedDir, safeName);
+  if (!fs.existsSync(syncedPath)) return syncedPath;
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  syncedPath = path.join(syncedDir, `${stamp}-${safeName}`);
+  return syncedPath;
 }
 
 const app = express();
@@ -416,18 +446,10 @@ app.post("/api/github/sync-nutritrack", async (_request, response) => {
     const owner = process.env.GITHUB_OWNER;
     const repo = process.env.GITHUB_REPO;
     const branch = process.env.GITHUB_BRANCH;
-
-    const pendingFiles = await githubRequest(
-      `/repos/${owner}/${repo}/contents/ai-imports/pending?ref=${encodeURIComponent(branch)}`
-    );
-
-    const jsonFiles = (Array.isArray(pendingFiles) ? pendingFiles : []).filter((file) =>
-      file.type === "file" && file.name.endsWith(".json")
-    );
-
-    if (!jsonFiles.length) {
-      return response.json({ ok: true, imported: 0, message: "No pending imports." });
-    }
+    const localPendingDir = path.join(rootDir, githubPendingPath);
+    fs.mkdirSync(localPendingDir, { recursive: true });
+    const localJsonFiles = fs.readdirSync(localPendingDir, { withFileTypes: true })
+      .filter((file) => file.isFile() && file.name.toLowerCase().endsWith(".json"));
 
     const current = db
       .prepare("SELECT value FROM app_state WHERE key = ?")
@@ -446,6 +468,19 @@ app.post("/api/github/sync-nutritrack", async (_request, response) => {
 
     const importedEntries = [];
     const importedWeights = [];
+    const syncedFiles = [];
+
+    const pendingFiles = await githubRequest(
+      `/repos/${owner}/${repo}/contents/ai-imports/pending?ref=${encodeURIComponent(branch)}`
+    );
+
+    const jsonFiles = (Array.isArray(pendingFiles) ? pendingFiles : []).filter((file) =>
+      file.type === "file" && file.name.endsWith(".json")
+    );
+
+    if (!jsonFiles.length && !localJsonFiles.length) {
+      return response.json({ ok: true, imported: 0, weightsImported: 0, files: 0, message: "No pending imports." });
+    }
 
     for (const file of jsonFiles) {
       const fileData = await githubRequest(
@@ -453,13 +488,10 @@ app.post("/api/github/sync-nutritrack", async (_request, response) => {
       );
 
       const rawJson = decodeBase64Content(fileData.content);
-      const payload = JSON.parse(rawJson);
+      const parsed = readPendingPayload(rawJson);
 
-      const newEntries = normalizeGithubNutriPayload(payload);
-      const newWeights = normalizeGithubWeightPayload(payload);
-
-      importedEntries.push(...newEntries);
-      importedWeights.push(...newWeights);
+      importedEntries.push(...parsed.entries);
+      importedWeights.push(...parsed.weights);
 
       const syncedPath = file.path.replace(
         "ai-imports/pending/",
@@ -482,6 +514,28 @@ app.post("/api/github/sync-nutritrack", async (_request, response) => {
           sha: file.sha,
           branch,
         }),
+      });
+
+      syncedFiles.push({
+        filename: file.name,
+        source: "github",
+        to: syncedPath,
+      });
+    }
+
+    for (const file of localJsonFiles) {
+      const localPath = path.join(localPendingDir, file.name);
+      const rawJson = fs.readFileSync(localPath, "utf8");
+      const parsed = readPendingPayload(rawJson);
+      importedEntries.push(...parsed.entries);
+      importedWeights.push(...parsed.weights);
+
+      const syncedPath = getLocalSyncedPath(file.name);
+      fs.renameSync(localPath, syncedPath);
+      syncedFiles.push({
+        filename: file.name,
+        source: "local",
+        to: path.relative(rootDir, syncedPath).replace(/\\/g, "/"),
       });
     }
 
@@ -509,7 +563,8 @@ app.post("/api/github/sync-nutritrack", async (_request, response) => {
       ok: true,
       imported: importedEntries.length,
       weightsImported: importedWeights.length,
-      files: jsonFiles.length,
+      files: syncedFiles.length,
+      syncedFiles,
     });
   } catch (error) {
     response.status(500).json({

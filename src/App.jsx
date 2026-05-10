@@ -4,6 +4,7 @@ import {
   LineChart,
   CartesianGrid,
   ReferenceDot,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -144,6 +145,7 @@ const exerciseData = [
 
 const activityTypes = ["Walking", "Strength training", "Cycling", "Running", "Swimming", "Yoga / mobility", "General activity"];
 const intensityOptions = ["Light", "Light to moderate", "Moderate", "Hard", "Very hard"];
+const mounjaroStrengths = ["2.5 mg", "5 mg", "7.5 mg", "10 mg", "12.5 mg", "15 mg"];
 
 const initialMeals = [
   {
@@ -184,6 +186,7 @@ const nutritionGoals = {
 };
 
 const weekDays = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+const dateWeekDays = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const foodCategories = ["All", "Fruit", "Vegetables", "Grains", "Legumes", "Protein", "Dairy", "Snacks"];
 const defaultFoodCategories = foodCategories.filter((item) => item !== "All");
 
@@ -344,6 +347,13 @@ function sortExerciseEntries(entries) {
     .sort((a, b) => new Date(a.date) - new Date(b.date));
 }
 
+function sortMounjaroEntries(entries) {
+  if (!Array.isArray(entries)) return [];
+  return [...entries]
+    .filter((entry) => entry?.date)
+    .sort((a, b) => new Date(a.date) - new Date(b.date));
+}
+
 function sortNutriEntries(entries) {
   if (!Array.isArray(entries)) return [];
   return [...entries]
@@ -361,6 +371,23 @@ function sortNutriWeekArchives(archives) {
 
 function normalizePlainObject(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+}
+
+function normalizeImportDay(value) {
+  const text = String(value || "").trim();
+  if (weekDays.includes(text)) return text;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) {
+    const date = new Date(`${text}T00:00:00Z`);
+    if (!Number.isNaN(date.getTime())) return dateWeekDays[date.getUTCDay()];
+  }
+  return "";
+}
+
+function getDateWeekdayIndex(dateString) {
+  const parts = parseDateParts(dateString);
+  if (!parts) return -1;
+  const date = new Date(`${parts.year}-${parts.month}-${parts.day}T00:00:00Z`);
+  return Number.isNaN(date.getTime()) ? -1 : date.getUTCDay();
 }
 
 function normalizeStringList(value) {
@@ -536,7 +563,7 @@ function buildNutriEntryFromImportItem(item, context = {}) {
 function normalizeNutriEntry(entry, fallbackDay = "Monday") {
   return {
     id: entry.id || createId(),
-    day: weekDays.includes(entry.day) ? entry.day : fallbackDay,
+    day: normalizeImportDay(entry.day) || fallbackDay,
     meal: entry.meal || "",
     recipeName: entry.recipeName || "",
     tag: entry.tag || "",
@@ -1080,15 +1107,17 @@ function normalizeNutriImportPayload(text) {
     };
   }
 
-  if (parsed?.type === "nutritrack_import" && weekDays.includes(parsed.day) && Array.isArray(parsed.items)) {
+  const parsedDay = normalizeImportDay(parsed?.day);
+
+  if (parsed?.type === "nutritrack_import" && parsedDay && Array.isArray(parsed.items)) {
     return {
       kind: "day",
-      day: parsed.day,
+      day: parsedDay,
       meal: parsed.meal || "",
       recipeName: parsed.recipeName || "",
       tag: parsed.tag || "",
       items: parsed.items.map((item) => buildNutriEntryFromImportItem(item, {
-        day: parsed.day,
+        day: parsedDay,
         meal: parsed.meal || "",
         recipeName: parsed.recipeName || "",
         tag: parsed.tag || "",
@@ -1099,7 +1128,7 @@ function normalizeNutriImportPayload(text) {
   }
 
   if (parsed?.meal && Array.isArray(parsed.ingredients)) {
-    const fallbackDay = weekDays.includes(parsed.day) ? parsed.day : null;
+    const fallbackDay = normalizeImportDay(parsed.day) || null;
     return {
       kind: "singleMeal",
       day: fallbackDay,
@@ -1117,14 +1146,14 @@ function normalizeNutriImportPayload(text) {
     };
   }
 
-  if (!weekDays.includes(parsed?.day) || !Array.isArray(parsed?.entries)) {
+  if (!parsedDay || !Array.isArray(parsed?.entries)) {
     throw new Error("Import must include a valid day and either entries with ingredients or type nutritrack_import with items.");
   }
 
   const items = parsed.entries.flatMap((entry) => {
     if (!Array.isArray(entry.ingredients)) return [];
     return entry.ingredients.map((item) => buildNutriEntryFromImportItem(item, {
-        day: parsed.day,
+        day: parsedDay,
         meal: entry.meal || "",
         recipeName: entry.recipeName || "",
         tag: entry.tag || "",
@@ -1137,7 +1166,7 @@ function normalizeNutriImportPayload(text) {
 
   return {
     kind: "day",
-    day: parsed.day,
+    day: parsedDay,
     meal: "",
     recipeName: "",
     tag: "",
@@ -1164,20 +1193,46 @@ function formatStones(kg) {
   return `${stones} st ${pounds.toFixed(1)} lb`;
 }
 
+function parseDateParts(dateString) {
+  const match = String(dateString || "").match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!match) return null;
+  return {
+    year: match[1],
+    month: match[2],
+    day: match[3],
+  };
+}
+
 function formatDateReadable(dateString) {
-  const date = new Date(dateString + "T00:00:00");
-  const day = String(date.getUTCDate()).padStart(2, "0");
-  const month = date.toLocaleString("en-US", { month: "short", timeZone: "UTC" });
-  const year = date.getUTCFullYear();
-  return `${day} ${month} ${year}`;
+  const parts = parseDateParts(dateString);
+  if (!parts) return String(dateString || "");
+  const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  return `${parts.day} ${monthNames[Number(parts.month) - 1] || parts.month} ${parts.year}`;
 }
 
 function formatDateNumeric(dateString) {
-  const date = new Date(dateString + "T00:00:00");
-  const day = String(date.getUTCDate()).padStart(2, "0");
-  const month = String(date.getUTCMonth() + 1).padStart(2, "0");
-  const year = date.getUTCFullYear();
-  return `${day}-${month}-${year}`;
+  const parts = parseDateParts(dateString);
+  if (!parts) return String(dateString || "");
+  return `${parts.day}-${parts.month}-${parts.year}`;
+}
+
+function dateToChartTime(dateString) {
+  const parts = parseDateParts(dateString);
+  if (!parts) return null;
+  return Date.UTC(Number(parts.year), Number(parts.month) - 1, Number(parts.day));
+}
+
+function formatChartTime(value) {
+  const timestamp = Number(value);
+  if (!Number.isFinite(timestamp)) return "";
+  return formatDateNumeric(new Date(timestamp).toISOString().slice(0, 10));
+}
+
+function formatMonthLabel(dateString) {
+  const parts = parseDateParts(dateString);
+  if (!parts) return String(dateString || "");
+  const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+  return `${monthNames[Number(parts.month) - 1] || parts.month} ${parts.year}`;
 }
 
 function formatDateTimeNumeric(dateString, timeString = "") {
@@ -1259,6 +1314,7 @@ function createFallbackAppState() {
       intensity: entry.intensity || "Moderate",
       notes: entry.notes || "",
     }))),
+    mounjaroEntries: [],
     nutriEntries: sortNutriEntries(initialNutriEntries.map((entry) => normalizeNutriEntry(entry))),
     nutriWeekArchives: [],
     nutriReferences: [],
@@ -1266,6 +1322,8 @@ function createFallbackAppState() {
     foodDatabaseCategories: {},
     foodDatabaseNutrition: {},
     nutriAutoArchivePausedLabel: "",
+    mounjaroNextStrength: "2.5 mg",
+    mounjaroNextStrengthStartDate: "",
   };
 }
 
@@ -1310,6 +1368,13 @@ function normalizeAppState(state) {
       intensity: entry.intensity || "Moderate",
       notes: entry.notes || "",
     }))),
+    mounjaroEntries: sortMounjaroEntries((Array.isArray(state.mounjaroEntries) ? state.mounjaroEntries : fallback.mounjaroEntries).map((entry) => ({
+      id: entry.id || createId(),
+      date: entry.date,
+      strength: mounjaroStrengths.includes(entry.strength) ? entry.strength : entry.strength || "2.5 mg",
+      nextStrength: mounjaroStrengths.includes(entry.nextStrength) ? entry.nextStrength : entry.nextStrength || "",
+      notes: entry.notes || "",
+    }))),
     nutriEntries: sortNutriEntries((Array.isArray(state.nutriEntries) ? state.nutriEntries : fallback.nutriEntries).map((entry) => normalizeNutriEntry(entry))),
     nutriWeekArchives: sortNutriWeekArchives((Array.isArray(state.nutriWeekArchives) ? state.nutriWeekArchives : fallback.nutriWeekArchives).map((archive) => ({
       id: archive.id || createId(),
@@ -1322,6 +1387,8 @@ function normalizeAppState(state) {
     foodDatabaseCategories: state.foodDatabaseCategories && typeof state.foodDatabaseCategories === "object" && !Array.isArray(state.foodDatabaseCategories) ? state.foodDatabaseCategories : fallback.foodDatabaseCategories,
     foodDatabaseNutrition: state.foodDatabaseNutrition && typeof state.foodDatabaseNutrition === "object" && !Array.isArray(state.foodDatabaseNutrition) ? state.foodDatabaseNutrition : fallback.foodDatabaseNutrition,
     nutriAutoArchivePausedLabel: String(state.nutriAutoArchivePausedLabel || ""),
+    mounjaroNextStrength: mounjaroStrengths.includes(state.mounjaroNextStrength) ? state.mounjaroNextStrength : fallback.mounjaroNextStrength,
+    mounjaroNextStrengthStartDate: /^\d{4}-\d{2}-\d{2}$/.test(String(state.mounjaroNextStrengthStartDate || "")) ? state.mounjaroNextStrengthStartDate : "",
   };
 }
 
@@ -1691,6 +1758,21 @@ function getReachedMilestonePoints(entries, weightGoals) {
     .filter(Boolean);
 }
 
+function getMounjaroDoseStartMarkers(entries) {
+  const sorted = sortMounjaroEntries(entries);
+  const markers = [];
+  let previousStrength = "";
+
+  sorted.forEach((entry) => {
+    const strength = String(entry.strength || "").trim();
+    if (!entry.date || !strength || strength === previousStrength) return;
+    previousStrength = strength;
+    markers.push({ date: entry.date, strength });
+  });
+
+  return markers;
+}
+
 function MilestoneBubble({ viewBox, percent }) {
   if (!viewBox) return null;
   const x = viewBox.cx ?? viewBox.x ?? 0;
@@ -1733,6 +1815,7 @@ function WeightPage({
   onWeightFormChange,
   onAddWeight,
   onDeleteWeight,
+  mounjaroDoseMarkers = [],
   onBack,
 }) {
   const trendText = (() => {
@@ -1795,6 +1878,22 @@ function WeightPage({
     obese: { marker: "bg-rose-600", text: "text-rose-700", ring: "ring-rose-200" },
     "severely obese": { marker: "bg-pink-600", text: "text-pink-700", ring: "ring-pink-200" },
   }[bmiCategory] || { marker: "bg-slate-950", text: "text-slate-700", ring: "ring-slate-200" };
+  const weightChartData = sortedWeights
+    .map((entry) => ({ ...entry, chartTime: dateToChartTime(entry.date) }))
+    .filter((entry) => Number.isFinite(entry.chartTime));
+  const mounjaroDoseChartMarkers = mounjaroDoseMarkers
+    .map((marker) => ({ ...marker, chartTime: dateToChartTime(marker.date) }))
+    .filter((marker) => Number.isFinite(marker.chartTime));
+  const reachedMilestoneChartPoints = reachedMilestonePoints
+    .map((milestone) => ({ ...milestone, chartTime: dateToChartTime(milestone.date) }))
+    .filter((milestone) => Number.isFinite(milestone.chartTime));
+  const weightChartTimes = [
+    ...weightChartData.map((entry) => entry.chartTime),
+    ...mounjaroDoseChartMarkers.map((marker) => marker.chartTime),
+  ];
+  const weightChartDomain = weightChartTimes.length
+    ? [Math.min(...weightChartTimes), Math.max(...weightChartTimes)]
+    : ["auto", "auto"];
   const weightHistoryRows = sortedWeights
     .map((entry, index) => {
       const previousWeight = index > 0 ? safeNumber(sortedWeights[index - 1].weight) : safeNumber(weightGoals.startingWeight);
@@ -1848,21 +1947,44 @@ function WeightPage({
           <h3 className="text-xl font-semibold text-slate-950">Weight trend</h3>
           <div className="mt-4 h-72">
             <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={sortedWeights} margin={{ top: 48, right: 28, left: 0, bottom: 0 }}>
+              <LineChart data={weightChartData} margin={{ top: 48, right: 28, left: 0, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                <XAxis dataKey="date" tickLine={false} axisLine={false} tickFormatter={formatDateNumeric} />
+                <XAxis
+                  dataKey="chartTime"
+                  type="number"
+                  domain={weightChartDomain}
+                  tickLine={false}
+                  axisLine={false}
+                  tickFormatter={formatChartTime}
+                />
                 <YAxis domain={["dataMin - 1", "dataMax + 1"]} tickLine={false} axisLine={false} />
-                <Tooltip labelFormatter={formatDateNumeric} />
+                <Tooltip labelFormatter={formatChartTime} />
+                {mounjaroDoseChartMarkers.map((marker) => (
+                  <ReferenceLine
+                    key={`${marker.date}-${marker.strength}`}
+                    x={marker.chartTime}
+                    stroke="#16a34a"
+                    strokeWidth={2}
+                    strokeDasharray="4 4"
+                    label={{
+                      value: marker.strength,
+                      position: "top",
+                      fill: "#166534",
+                      fontSize: 12,
+                      fontWeight: 700,
+                    }}
+                  />
+                ))}
                 <Line type="monotone" dataKey="weight" strokeWidth={4} dot={{ r: 4 }} activeDot={{ r: 6 }} />
-                {reachedMilestonePoints.map((milestone) => (
+                {reachedMilestoneChartPoints.map((milestone) => (
                   <ReferenceDot
                     key={`${milestone.percent}-${milestone.date}`}
-                    x={milestone.date}
+                    x={milestone.chartTime}
                     y={milestone.weight}
-                    r={6}
-                    fill="#059669"
-                    stroke="white"
-                    strokeWidth={2}
+                    r={0}
+                    fill="transparent"
+                    stroke="transparent"
+                    strokeWidth={0}
                     label={<MilestoneBubble percent={milestone.percent} />}
                   />
                 ))}
@@ -2406,6 +2528,173 @@ function ExercisePage({ entries, exerciseForm, onExerciseFormChange, onAddExerci
   );
 }
 
+function MounjaroPage({ entries, nextStrength, nextStrengthStartDate, onSelectNextStrength, onSelectNextStrengthStartDate, onConfirmInjectionDate, onDeleteEntry, onBack }) {
+  const [editingStartDateFor, setEditingStartDateFor] = useState("");
+  const sortedEntries = sortMounjaroEntries(entries);
+  const latestEntry = sortedEntries.length ? sortedEntries[sortedEntries.length - 1] : null;
+  const injectionDates = new Set(sortedEntries.map((entry) => entry.date));
+  const todayKey = getLocalDateKey(new Date());
+  const currentStrength = latestEntry?.strength || "2.5 mg";
+  const injectionScheduleDates = (() => {
+    const today = new Date();
+    const treatmentStart = new Date("2026-05-01T00:00:00");
+    const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+    const monthEnd = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+    const start = monthStart < treatmentStart ? treatmentStart : monthStart;
+    const daysToShow = Math.max(0, Math.floor((monthEnd - start) / 86400000) + 1);
+    return Array.from({ length: daysToShow }, (_, index) => {
+      const date = new Date(start);
+      date.setDate(start.getDate() + index);
+      return getLocalDateKey(date);
+    }).filter((date) => getDateWeekdayIndex(date) === 5);
+  })();
+  const nextInjectionDate = injectionScheduleDates.find((date) => date >= todayKey && !injectionDates.has(date))
+    || injectionScheduleDates.find((date) => !injectionDates.has(date))
+    || injectionScheduleDates[injectionScheduleDates.length - 1]
+    || "";
+  const strengthForDate = (date) => nextStrengthStartDate && date >= nextStrengthStartDate ? nextStrength : currentStrength;
+  const historyGroups = [...sortedEntries].reverse().reduce((groups, entry) => {
+    const key = String(entry.date || "").slice(0, 7);
+    const existing = groups.find((group) => group.key === key);
+    if (existing) existing.entries.push(entry);
+    else groups.push({ key, label: formatMonthLabel(entry.date), entries: [entry] });
+    return groups;
+  }, []);
+
+  return (
+    <div className="space-y-6">
+      <div className="grid gap-6 xl:grid-cols-[1.3fr_0.7fr]">
+        <div className="rounded-3xl bg-white/80 p-6 shadow-lg shadow-slate-200/60 ring-1 ring-slate-100">
+          <p className="text-sm font-semibold uppercase tracking-[0.3em] text-emerald-500">Mounjaro</p>
+          <h2 className="mt-4 text-3xl font-bold text-slate-950">Track injection days and strength changes.</h2>
+          <p className="mt-3 text-sm text-slate-500">Log each injection date, the strength started, and the next planned strength.</p>
+        </div>
+        <div className="flex items-end justify-end">
+          <button type="button" onClick={onBack} className="rounded-2xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white shadow-lg transition hover:bg-slate-800">Back to dashboard</button>
+        </div>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-3">
+        <StatCard icon={SparklesIcon} label="Latest injection" value={latestEntry ? formatDateNumeric(latestEntry.date) : "--"} sub={latestEntry ? latestEntry.strength : "No injections logged"} accent="bg-emerald-100 text-emerald-700" />
+        <StatCard icon={TargetIcon} label="Current strength" value={latestEntry?.strength || "--"} sub="Strength started" accent="bg-sky-100 text-sky-700" />
+        <StatCard icon={FlameIcon} label="Next strength" value={latestEntry?.nextStrength || "--"} sub="Planned next step" accent="bg-amber-100 text-amber-700" />
+      </div>
+
+      <div className="grid gap-6 lg:grid-cols-[0.9fr_1.4fr]">
+        <div className="rounded-3xl bg-white/80 p-6 shadow-lg shadow-slate-200/60 ring-1 ring-slate-100">
+          <h3 className="text-xl font-semibold text-slate-950">Next Strength</h3>
+          <p className="mt-2 text-sm text-slate-500">Pick the next strength and the date it starts. Earlier Fridays stay on the previous strength.</p>
+          <div className="mt-5 grid gap-3">
+            {mounjaroStrengths.map((strength) => {
+              const selected = nextStrength === strength;
+              const isEditingDate = editingStartDateFor === strength;
+              return (
+                <div
+                  key={strength}
+                  className={`flex items-center justify-between gap-3 rounded-2xl p-4 text-left ring-1 transition ${selected ? "bg-emerald-50 text-emerald-950 ring-emerald-200" : "bg-slate-50 text-slate-700 ring-slate-100 hover:bg-white"}`}
+                >
+                  <button type="button" onClick={() => onSelectNextStrength(strength)} className="flex items-center gap-3 text-left">
+                    <span className={`inline-grid h-7 w-7 place-items-center rounded-full border text-sm font-black ${selected ? "border-emerald-500 bg-emerald-600 text-white" : "border-slate-300 bg-white text-transparent"}`}>{selected ? "✓" : ""}</span>
+                    <span className="font-bold">{strength}</span>
+                  </button>
+                  {isEditingDate ? (
+                    <input
+                      type="date"
+                      value={selected ? nextStrengthStartDate : ""}
+                      onChange={(event) => {
+                        onSelectNextStrength(strength);
+                        onSelectNextStrengthStartDate(event.target.value);
+                      }}
+                      onBlur={() => setEditingStartDateFor("")}
+                      autoFocus
+                      className="w-36 rounded-xl border border-emerald-200 bg-white px-3 py-2 text-xs font-semibold text-slate-900 shadow-sm focus:border-emerald-400 focus:outline-none"
+                      aria-label={`${strength} start date`}
+                    />
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onSelectNextStrength(strength);
+                        setEditingStartDateFor(strength);
+                      }}
+                      className="rounded-xl bg-white px-3 py-2 text-xs font-semibold text-slate-500 ring-1 ring-slate-100 transition hover:text-emerald-700 hover:ring-emerald-200"
+                    >
+                      {selected && nextStrengthStartDate ? formatDateNumeric(nextStrengthStartDate) : "Set date"}
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="rounded-3xl bg-white/80 p-6 shadow-lg shadow-slate-200/60 ring-1 ring-slate-100">
+          <h3 className="text-xl font-semibold text-slate-950">Injection days</h3>
+          <p className="mt-2 text-sm text-slate-500">Friday injection days for this month. Click a circle to confirm it.</p>
+          <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+            {injectionScheduleDates.map((date) => {
+              const hasInjection = injectionDates.has(date);
+              return (
+                <div key={date} className={`rounded-2xl p-4 text-center ring-1 ${hasInjection ? "bg-emerald-50 text-emerald-950 ring-emerald-200" : "bg-white text-slate-700 ring-emerald-200"}`}>
+                  <p className="text-xs font-semibold text-slate-500">Friday</p>
+                  <p className="mt-1 text-sm font-bold">{formatDateNumeric(date)}</p>
+                  <p className="mt-1 text-xs font-semibold text-slate-500">{strengthForDate(date)}</p>
+                  <button
+                    type="button"
+                    onClick={() => !hasInjection && onConfirmInjectionDate(date, strengthForDate(date))}
+                    disabled={hasInjection}
+                    className={`mt-3 inline-grid h-11 w-11 place-items-center rounded-full border text-xl font-black transition ${
+                      hasInjection
+                        ? "cursor-default border-emerald-500 bg-emerald-600 text-white"
+                        : "border-emerald-300 bg-white text-emerald-600 hover:bg-emerald-50"
+                    }`}
+                    aria-label={hasInjection ? `Injection confirmed for ${formatDateNumeric(date)}` : `Confirm injection for ${formatDateNumeric(date)}`}
+                  >
+                    {hasInjection ? "✓" : ""}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="mt-6 grid gap-3">
+            {historyGroups.map((group, index) => (
+              <details key={group.key} open={index === 0} className="rounded-2xl bg-slate-50 p-4 ring-1 ring-slate-100">
+                <summary className="cursor-pointer font-semibold text-slate-950">
+                  {group.label} / {group.entries.length} injection{group.entries.length === 1 ? "" : "s"}
+                </summary>
+                <div className="mt-3 overflow-x-auto">
+                  <table className="min-w-full text-left text-sm text-slate-700">
+                    <thead>
+                      <tr>
+                        <th className="px-3 py-3 font-semibold text-slate-500">Date</th>
+                        <th className="px-3 py-3 font-semibold text-slate-500">Strength</th>
+                        <th className="px-3 py-3 font-semibold text-slate-500">Notes</th>
+                        <th className="px-3 py-3 font-semibold text-slate-500">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-200">
+                      {group.entries.map((entry) => (
+                        <tr key={entry.id}>
+                          <td className="px-3 py-3 font-semibold">{formatDateNumeric(entry.date)}</td>
+                          <td className="px-3 py-3">{entry.strength}</td>
+                          <td className="px-3 py-3 text-slate-600">{entry.notes || "--"}</td>
+                          <td className="px-3 py-3"><button type="button" onClick={() => onDeleteEntry(entry.id)} className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-slate-700 ring-1 ring-slate-100 transition hover:bg-slate-100">Delete</button></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </details>
+            ))}
+            {!sortedEntries.length && <div className="rounded-2xl bg-slate-50 p-4 text-sm text-slate-500 ring-1 ring-slate-100">No Mounjaro injections logged yet.</div>}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function CollapsiblePanel({ title, subtitle, meta, defaultOpen = true, children }) {
   return (
     <details open={defaultOpen} className="rounded-3xl bg-white/80 p-6 shadow-lg shadow-slate-200/60 ring-1 ring-slate-100">
@@ -2430,7 +2719,6 @@ function NutriTrackPage({
   nutriWeekArchives,
   nutriReferences,
   selectedDay,
-  nutriImportText,
   nutriImportStatus,
   onSelectDay,
   onDeleteNutriEntry,
@@ -2438,8 +2726,6 @@ function NutriTrackPage({
   onScaleNutriEntries,
   onSaveNutriWeek,
   onEditNutriWeek,
-  onNutriImportTextChange,
-  onImportNutriTrack,
   onBack,
 }) {
   const entriesForDay = sortNutriEntries(nutriEntries).filter((entry) => entry.day === selectedDay);
@@ -2871,23 +3157,6 @@ function NutriTrackPage({
           {!nutriWeekArchives.length && <div className="rounded-2xl bg-slate-50 p-4 text-sm text-slate-600">No saved weeks yet.</div>}
         </div>
       </CollapsiblePanel>
-
-      <CollapsiblePanel
-        title="Paste from ChatGPT"
-        subtitle="Paste a meal-day import, a single meal or supplement, the original NutriTrack JSON, or an ingredient nutrition breakdown. Single meals without a day import into the selected day."
-        defaultOpen
-      >
-        <textarea
-          value={nutriImportText}
-          onChange={onNutriImportTextChange}
-          className="mt-5 min-h-56 w-full rounded-3xl border border-slate-200 bg-white p-4 font-mono text-sm text-slate-900 shadow-sm focus:border-sky-300 focus:outline-none"
-          placeholder='{"day":"Monday","entries":[{"meal":"Breakfast","recipeName":"High Fibre Seed & Berry Bowl","tag":"Recipe","ingredients":[{"name":"Oats","amount":40,"unit":"g","kcal":148,"fibrePer100g":10.6}]}]}'
-        />
-        <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <button type="button" onClick={onImportNutriTrack} className="inline-flex items-center justify-center rounded-2xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white shadow-lg transition hover:bg-slate-800">Import to NutriTrack</button>
-          {nutriImportStatus && <p className="text-sm font-semibold text-slate-600">{nutriImportStatus}</p>}
-        </div>
-      </CollapsiblePanel>
     </div>
   );
 }
@@ -3279,6 +3548,7 @@ export default function App() {
   const [weights, setWeights] = useState(() => fallbackAppState.weights);
   const [bloodPressureEntries, setBloodPressureEntries] = useState(() => fallbackAppState.bloodPressureEntries);
   const [exerciseEntries, setExerciseEntries] = useState(() => fallbackAppState.exerciseEntries);
+  const [mounjaroEntries, setMounjaroEntries] = useState(() => fallbackAppState.mounjaroEntries);
   const [nutriEntries, setNutriEntries] = useState(() => fallbackAppState.nutriEntries);
   const [nutriWeekArchives, setNutriWeekArchives] = useState(() => fallbackAppState.nutriWeekArchives);
   const [nutriReferences, setNutriReferences] = useState(() => fallbackAppState.nutriReferences);
@@ -3286,6 +3556,8 @@ export default function App() {
   const [foodDatabaseCategories, setFoodDatabaseCategories] = useState(() => fallbackAppState.foodDatabaseCategories);
   const [foodDatabaseNutrition, setFoodDatabaseNutrition] = useState(() => fallbackAppState.foodDatabaseNutrition);
   const [nutriAutoArchivePausedLabel, setNutriAutoArchivePausedLabel] = useState(() => fallbackAppState.nutriAutoArchivePausedLabel);
+  const [mounjaroNextStrength, setMounjaroNextStrength] = useState(() => fallbackAppState.mounjaroNextStrength);
+  const [mounjaroNextStrengthStartDate, setMounjaroNextStrengthStartDate] = useState(() => fallbackAppState.mounjaroNextStrengthStartDate);
   const [selectedNutriDay, setSelectedNutriDay] = useState("Monday");
   const [form, setForm] = useState({ meal: "Snack", items: "", kcal: "", protein: "", fibre: "" });
   const [weightForm, setWeightForm] = useState({ date: "", weight: "" });
@@ -3301,6 +3573,7 @@ export default function App() {
   const [storageStatus, setStorageStatus] = useState("Opening database");
   const [confettiPieces, setConfettiPieces] = useState([]);
   const achievedMilestoneRef = useRef(null);
+  const startupSyncRanRef = useRef(false);
 
   useEffect(() => {
     let isActive = true;
@@ -3316,6 +3589,7 @@ export default function App() {
           setWeights(nextState.weights);
           setBloodPressureEntries(nextState.bloodPressureEntries);
           setExerciseEntries(nextState.exerciseEntries);
+          setMounjaroEntries(nextState.mounjaroEntries);
           setNutriEntries(nextState.nutriEntries);
           setNutriWeekArchives(nextState.nutriWeekArchives);
           setNutriReferences(nextState.nutriReferences);
@@ -3323,6 +3597,8 @@ export default function App() {
           setFoodDatabaseCategories(nextState.foodDatabaseCategories);
           setFoodDatabaseNutrition(nextState.foodDatabaseNutrition);
           setNutriAutoArchivePausedLabel(nextState.nutriAutoArchivePausedLabel);
+          setMounjaroNextStrength(nextState.mounjaroNextStrength);
+          setMounjaroNextStrengthStartDate(nextState.mounjaroNextStrengthStartDate);
           setWeightGoals(nextState.weightGoals);
           setGoalForm(nextState.weightGoals);
           setBmiProfile(nextState.bmiProfile);
@@ -3358,6 +3634,7 @@ export default function App() {
       weights,
       bloodPressureEntries,
       exerciseEntries,
+      mounjaroEntries,
       nutriEntries,
       nutriWeekArchives,
       nutriReferences,
@@ -3365,6 +3642,8 @@ export default function App() {
       foodDatabaseCategories,
       foodDatabaseNutrition,
       nutriAutoArchivePausedLabel,
+      mounjaroNextStrength,
+      mounjaroNextStrengthStartDate,
       weightGoals,
       bmiProfile,
       savedAt: new Date().toISOString(),
@@ -3388,13 +3667,15 @@ export default function App() {
     return () => {
       isActive = false;
     };
-  }, [isDatabaseReady, isDatabaseAvailable, meals, habits, weights, bloodPressureEntries, exerciseEntries, nutriEntries, nutriWeekArchives, nutriReferences, foodDatabaseFavorites, foodDatabaseCategories, foodDatabaseNutrition, nutriAutoArchivePausedLabel, weightGoals, bmiProfile]);
+  }, [isDatabaseReady, isDatabaseAvailable, meals, habits, weights, bloodPressureEntries, exerciseEntries, mounjaroEntries, nutriEntries, nutriWeekArchives, nutriReferences, foodDatabaseFavorites, foodDatabaseCategories, foodDatabaseNutrition, nutriAutoArchivePausedLabel, mounjaroNextStrength, mounjaroNextStrengthStartDate, weightGoals, bmiProfile]);
 
   const dashboardDay = getTodayWeekDay();
   const totals = useMemo(() => calculateNutriDashboardTotals(nutriEntries, nutriReferences, dashboardDay), [nutriEntries, nutriReferences, dashboardDay]);
   const sortedWeights = useMemo(() => sortWeightEntries(weights), [weights]);
   const sortedBloodPressureEntries = useMemo(() => sortBloodPressureEntries(bloodPressureEntries), [bloodPressureEntries]);
   const sortedExerciseEntries = useMemo(() => sortExerciseEntries(exerciseEntries), [exerciseEntries]);
+  const sortedMounjaroEntries = useMemo(() => sortMounjaroEntries(mounjaroEntries), [mounjaroEntries]);
+  const mounjaroDoseMarkers = useMemo(() => getMounjaroDoseStartMarkers(sortedMounjaroEntries), [sortedMounjaroEntries]);
   const latestWeightEntry = getLatestWeightEntry(sortedWeights);
   const latestBloodPressureEntry = getLatestBloodPressureEntry(sortedBloodPressureEntries);
   const bloodPressureAverage = useMemo(() => calculateBloodPressureAverage(sortedBloodPressureEntries), [sortedBloodPressureEntries]);
@@ -3500,6 +3781,12 @@ export default function App() {
     archiveCurrentNutriWeek("auto");
   }, [isDatabaseReady, nutriEntries, nutriWeekArchives, nutriAutoArchivePausedLabel]);
 
+  useEffect(() => {
+    if (!isDatabaseReady || startupSyncRanRef.current) return;
+    startupSyncRanRef.current = true;
+    syncPendingAiImports({ silent: true });
+  }, [isDatabaseReady]);
+
   const handleFormChange = (field) => (event) => {
     setForm((prev) => ({ ...prev, [field]: event.target.value }));
   };
@@ -3588,6 +3875,22 @@ export default function App() {
     setExerciseForm({ date: "", activityType: "Walking", duration: "", distance: "", steps: "", calories: "", intensity: "Light to moderate", notes: "" });
   };
   const handleDeleteExercise = (id) => setExerciseEntries((prev) => prev.filter((entry) => entry.id !== id));
+  const handleConfirmMounjaroDate = (date, plannedStrength) => {
+    const sorted = sortMounjaroEntries(mounjaroEntries);
+    const previousEntry = [...sorted].reverse().find((entry) => entry.date <= date);
+    const strength = plannedStrength || previousEntry?.strength || mounjaroNextStrength || "2.5 mg";
+    setMounjaroEntries((prev) => sortMounjaroEntries([
+      ...prev.filter((entry) => entry.date !== date),
+      {
+        id: createId(),
+        date,
+        strength,
+        nextStrength: mounjaroNextStrength,
+        notes: "Confirmed injection day",
+      },
+    ]));
+  };
+  const handleDeleteMounjaroEntry = (id) => setMounjaroEntries((prev) => prev.filter((entry) => entry.id !== id));
   const handleSelectNutriDay = (day) => {
     setSelectedNutriDay(day);
     setNutriForm((prev) => ({ ...prev, day }));
@@ -3636,6 +3939,7 @@ export default function App() {
     setWeights(nextState.weights);
     setBloodPressureEntries(nextState.bloodPressureEntries);
     setExerciseEntries(nextState.exerciseEntries);
+    setMounjaroEntries(nextState.mounjaroEntries);
     setNutriEntries(nextState.nutriEntries);
     setNutriWeekArchives(nextState.nutriWeekArchives);
     setNutriReferences(nextState.nutriReferences);
@@ -3643,15 +3947,17 @@ export default function App() {
     setFoodDatabaseCategories(nextState.foodDatabaseCategories);
     setFoodDatabaseNutrition(nextState.foodDatabaseNutrition);
     setNutriAutoArchivePausedLabel(nextState.nutriAutoArchivePausedLabel);
+    setMounjaroNextStrength(nextState.mounjaroNextStrength);
+    setMounjaroNextStrengthStartDate(nextState.mounjaroNextStrengthStartDate);
     setWeightGoals(nextState.weightGoals);
     setGoalForm(nextState.weightGoals);
     setBmiProfile(nextState.bmiProfile);
     setProfileForm(nextState.bmiProfile);
   };
-  const handleSyncGithubImports = async () => {
+  const syncPendingAiImports = async ({ silent = false } = {}) => {
     setIsGithubSyncing(true);
-    setGithubSyncStatus("Syncing pending AI imports...");
-    setNutriImportStatus("");
+    if (!silent) setGithubSyncStatus("Syncing pending AI imports...");
+    if (!silent) setNutriImportStatus("");
 
     try {
       const response = await fetch("/api/github/sync-nutritrack", {
@@ -3661,7 +3967,7 @@ export default function App() {
 
       if (!response.ok) {
         const message = result.error || "GitHub sync failed.";
-        setNutriImportStatus(message);
+        if (!silent) setNutriImportStatus(message);
         setGithubSyncStatus(message);
         return;
       }
@@ -3674,19 +3980,22 @@ export default function App() {
         `${result.weightsImported || 0} weight reading${result.weightsImported === 1 ? "" : "s"}`,
       ];
       const message = `Synced ${syncedParts.join(" and ")}.`;
-      setNutriImportStatus(message);
-      setGithubSyncStatus(result.message || message);
+      if (!silent) setNutriImportStatus(message);
+      if (!silent || result.imported || result.weightsImported) {
+        setGithubSyncStatus(result.message || message);
+      }
       setStorageStatus("Database loaded");
       setIsDatabaseAvailable(true);
       setIsDatabaseReady(true);
     } catch (error) {
       const message = error instanceof Error ? error.message : "GitHub sync failed.";
-      setNutriImportStatus(message);
+      if (!silent) setNutriImportStatus(message);
       setGithubSyncStatus(message);
     } finally {
       setIsGithubSyncing(false);
     }
   };
+  const handleSyncGithubImports = () => syncPendingAiImports();
   const handleImportNutriTrack = () => {
     try {
       const importPayload = normalizeNutriImportPayload(nutriImportText);
@@ -3831,6 +4140,7 @@ export default function App() {
   const openWeightPage = () => setCurrentPage("weight");
   const openBloodPressurePage = () => setCurrentPage("bloodPressure");
   const openExercisePage = () => setCurrentPage("exercise");
+  const openMounjaroPage = () => setCurrentPage("mounjaro");
   const openNutriTrackPage = () => setCurrentPage("nutriTrack");
   const openRecipesPage = () => setCurrentPage("recipes");
   const openFoodDatabasePage = () => setCurrentPage("foodDatabase");
@@ -3840,6 +4150,7 @@ export default function App() {
     weight: "Weight tracker",
     bloodPressure: "Blood pressure tracker",
     exercise: "Exercise tracker",
+    mounjaro: "Mounjaro tracker",
     nutriTrack: "NutriTrack",
     recipes: "Recipe cards",
     foodDatabase: "Food database",
@@ -3849,6 +4160,7 @@ export default function App() {
     weight: "Track trends, set goals, and focus on steady progress.",
     bloodPressure: "Record blood pressure readings, pulse, notes, and trends in one dedicated view.",
     exercise: "Track walking, strength, cardio, steps, intensity and activity notes.",
+    mounjaro: "Track injection days, strengths started, and next planned strengths.",
     nutriTrack: "Import ingredients by day and review fibre breakdowns with NutriAnalysis.",
     recipes: "Browse recipe cards generated from uploaded NutriTrack meals.",
     foodDatabase: "Search saved foods and reuse common portions in NutriTrack.",
@@ -3875,14 +4187,15 @@ export default function App() {
                 <span className={`h-2 w-2 rounded-full ${storageStatus.includes("Saving") || storageStatus.includes("Opening") ? "bg-amber-300" : storageStatus.includes("unavailable") || storageStatus.includes("failed") ? "bg-rose-300" : "bg-emerald-300"}`} />
                 {storageStatus}
               </div>
-              <div className="inline-flex overflow-hidden rounded-3xl border border-white/10 bg-white/10 text-sm font-semibold text-slate-200">
-                <button type="button" onClick={openDashboardPage} className={`rounded-3xl px-5 py-3 transition ${currentPage === "dashboard" ? "bg-white text-slate-950" : "hover:bg-white/10"}`}>Dashboard</button>
-                <button type="button" onClick={openWeightPage} className={`rounded-3xl px-5 py-3 transition ${currentPage === "weight" ? "bg-white text-slate-950" : "hover:bg-white/10"}`}>Weight</button>
-                <button type="button" onClick={openBloodPressurePage} className={`rounded-3xl px-5 py-3 transition ${currentPage === "bloodPressure" ? "bg-white text-slate-950" : "hover:bg-white/10"}`}>Blood pressure</button>
-                <button type="button" onClick={openExercisePage} className={`rounded-3xl px-5 py-3 transition ${currentPage === "exercise" ? "bg-white text-slate-950" : "hover:bg-white/10"}`}>Exercise</button>
-                <button type="button" onClick={openNutriTrackPage} className={`rounded-3xl px-5 py-3 transition ${currentPage === "nutriTrack" ? "bg-white text-slate-950" : "hover:bg-white/10"}`}>NutriTrack</button>
-                <button type="button" onClick={openRecipesPage} className={`rounded-3xl px-5 py-3 transition ${currentPage === "recipes" ? "bg-white text-slate-950" : "hover:bg-white/10"}`}>Recipes</button>
-                <button type="button" onClick={openFoodDatabasePage} className={`rounded-3xl px-5 py-3 transition ${currentPage === "foodDatabase" ? "bg-white text-slate-950" : "hover:bg-white/10"}`}>Food database</button>
+              <div className="inline-flex max-w-full overflow-x-auto rounded-3xl border border-white/10 bg-white/10 text-sm font-semibold text-slate-200">
+                <button type="button" onClick={openDashboardPage} className={`whitespace-nowrap rounded-3xl px-4 py-3 transition ${currentPage === "dashboard" ? "bg-white text-slate-950" : "hover:bg-white/10"}`}>Dashboard</button>
+                <button type="button" onClick={openWeightPage} className={`whitespace-nowrap rounded-3xl px-4 py-3 transition ${currentPage === "weight" ? "bg-white text-slate-950" : "hover:bg-white/10"}`}>Weight</button>
+                <button type="button" onClick={openBloodPressurePage} className={`whitespace-nowrap rounded-3xl px-4 py-3 transition ${currentPage === "bloodPressure" ? "bg-white text-slate-950" : "hover:bg-white/10"}`}>Blood pressure</button>
+                <button type="button" onClick={openExercisePage} className={`whitespace-nowrap rounded-3xl px-4 py-3 transition ${currentPage === "exercise" ? "bg-white text-slate-950" : "hover:bg-white/10"}`}>Exercise</button>
+                <button type="button" onClick={openMounjaroPage} className={`whitespace-nowrap rounded-3xl px-4 py-3 transition ${currentPage === "mounjaro" ? "bg-white text-slate-950" : "hover:bg-white/10"}`}>Mounjaro</button>
+                <button type="button" onClick={openNutriTrackPage} className={`whitespace-nowrap rounded-3xl px-4 py-3 transition ${currentPage === "nutriTrack" ? "bg-white text-slate-950" : "hover:bg-white/10"}`}>NutriTrack</button>
+                <button type="button" onClick={openRecipesPage} className={`whitespace-nowrap rounded-3xl px-4 py-3 transition ${currentPage === "recipes" ? "bg-white text-slate-950" : "hover:bg-white/10"}`}>Recipes</button>
+                <button type="button" onClick={openFoodDatabasePage} className={`whitespace-nowrap rounded-3xl px-4 py-3 transition ${currentPage === "foodDatabase" ? "bg-white text-slate-950" : "hover:bg-white/10"}`}>Food database</button>
               </div>
               <button type="button" onClick={openNutriTrackPage} className="inline-flex items-center justify-center gap-2 rounded-2xl bg-white px-5 py-3 font-semibold text-slate-950 shadow-lg transition hover:bg-slate-100"><PlusIcon className="h-5 w-5" />Log food</button>
             </div>
@@ -3980,6 +4293,22 @@ export default function App() {
                 </div>
                 <button type="button" onClick={openExercisePage} className="mt-4 w-full rounded-2xl bg-slate-950 px-4 py-3 text-sm font-semibold text-white shadow-lg transition hover:bg-slate-800">Open exercise</button>
               </div>
+
+              <div className="rounded-3xl bg-white/80 p-5 shadow-lg shadow-slate-200/60 ring-1 ring-slate-100">
+                <div className="mb-4 flex items-center gap-3">
+                  <div className="rounded-2xl bg-emerald-100 p-3 text-emerald-700"><SparklesIcon className="h-5 w-5" /></div>
+                  <div>
+                    <h2 className="text-xl font-bold">Mounjaro</h2>
+                    <p className="text-sm text-slate-500">{sortedMounjaroEntries.length} injection day{sortedMounjaroEntries.length === 1 ? "" : "s"}</p>
+                  </div>
+                </div>
+                <div className="grid gap-3 rounded-3xl bg-slate-50 p-4 text-sm text-slate-600">
+                  <p><span className="font-semibold text-slate-950">Latest:</span> {sortedMounjaroEntries.length ? formatDateNumeric(sortedMounjaroEntries[sortedMounjaroEntries.length - 1].date) : "No injection logged"}</p>
+                  <p><span className="font-semibold text-slate-950">Strength:</span> {sortedMounjaroEntries.length ? sortedMounjaroEntries[sortedMounjaroEntries.length - 1].strength : "--"}</p>
+                  <p><span className="font-semibold text-slate-950">Next:</span> {sortedMounjaroEntries.length ? sortedMounjaroEntries[sortedMounjaroEntries.length - 1].nextStrength || "--" : "--"}</p>
+                </div>
+                <button type="button" onClick={openMounjaroPage} className="mt-4 w-full rounded-2xl bg-slate-950 px-4 py-3 text-sm font-semibold text-white shadow-lg transition hover:bg-slate-800">Open Mounjaro</button>
+              </div>
             </div>
 
             <div className="grid gap-6 lg:grid-cols-3">
@@ -4039,6 +4368,7 @@ export default function App() {
             onWeightFormChange={handleWeightFormChange}
             onAddWeight={handleAddWeight}
             onDeleteWeight={handleDeleteWeight}
+            mounjaroDoseMarkers={mounjaroDoseMarkers}
             onProfileFormChange={handleProfileFormChange}
             onSaveProfile={handleSaveProfile}
             onBack={openDashboardPage}
@@ -4069,13 +4399,25 @@ export default function App() {
           />
         )}
 
+        {currentPage === "mounjaro" && (
+          <MounjaroPage
+            entries={sortedMounjaroEntries}
+            nextStrength={mounjaroNextStrength}
+            nextStrengthStartDate={mounjaroNextStrengthStartDate}
+            onSelectNextStrength={setMounjaroNextStrength}
+            onSelectNextStrengthStartDate={setMounjaroNextStrengthStartDate}
+            onConfirmInjectionDate={handleConfirmMounjaroDate}
+            onDeleteEntry={handleDeleteMounjaroEntry}
+            onBack={openDashboardPage}
+          />
+        )}
+
         {currentPage === "nutriTrack" && (
           <NutriTrackPage
             nutriEntries={nutriEntries}
             nutriWeekArchives={nutriWeekArchives}
             nutriReferences={nutriReferences}
             selectedDay={selectedNutriDay}
-            nutriImportText={nutriImportText}
             nutriImportStatus={nutriImportStatus}
             onSelectDay={handleSelectNutriDay}
             onDeleteNutriEntry={handleDeleteNutriEntry}
@@ -4083,8 +4425,6 @@ export default function App() {
             onScaleNutriEntries={handleScaleNutriEntries}
             onSaveNutriWeek={() => archiveCurrentNutriWeek("manual")}
             onEditNutriWeek={handleEditNutriWeek}
-            onNutriImportTextChange={handleNutriImportTextChange}
-            onImportNutriTrack={handleImportNutriTrack}
             onBack={openDashboardPage}
           />
         )}
