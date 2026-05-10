@@ -1,0 +1,110 @@
+SqliteError: disk I/O error
+    at writeAppStateValue (file:///C:/FoodTrack/server/index.js:84:6)
+    at file:///C:/FoodTrack/server/index.js:105:21
+    at Layer.handleRequest (C:\FoodTrack\node_modules\router\lib\layer.js:152:17)
+    at next (C:\FoodTrack\node_modules\router\lib\route.js:157:13)
+    at Route.dispatch (C:\FoodTrack\node_modules\router\lib\route.js:117:3)
+    at handle (C:\FoodTrack\node_modules\router\index.js:435:11)
+    at Layer.handleRequest (C:\FoodTrack\node_modules\router\lib\layer.js:152:17)
+    at C:\FoodTrack\node_modules\router\index.js:295:15
+    at param (C:\FoodTrack\node_modules\router\index.js:600:14)
+    at param (C:\FoodTrack\node_modules\router\index.js:610:14)
+SqliteError: disk I/O error
+    at file:///C:/FoodTrack/server/index.js:96:86
+    at Layer.handleRequest (C:\FoodTrack\node_modules\router\lib\layer.js:152:17)
+    at next (C:\FoodTrack\node_modules\router\lib\route.js:157:13)
+    at Route.dispatch (C:\FoodTrack\node_modules\router\lib\route.js:117:3)
+    at handle (C:\FoodTrack\node_modules\router\index.js:435:11)
+    at Layer.handleRequest (C:\FoodTrack\node_modules\router\lib\layer.js:152:17)
+    at C:\FoodTrack\node_modules\router\index.js:295:15
+    at param (C:\FoodTrack\node_modules\router\index.js:600:14)
+    at param (C:\FoodTrack\node_modules\router\index.js:610:14)
+    at processParams (C:\FoodTrack\node_modules\router\index.js:664:3)
+SqliteError: disk I/O error
+    at file:///C:/FoodTrack/server/index.js:96:86
+    at Layer.handleRequest (C:\FoodTrack\node_modules\router\lib\layer.js:152:17)
+    at next (C:\FoodTrack\node_modules\router\lib\route.js:157:13)
+    at Route.dispatch (C:\FoodTrack\node_modules\router\lib\route.js:117:3)
+    at handle (C:\FoodTrack\node_modules\router\index.js:435:11)
+    at Layer.handleRequest (C:\FoodTrack\node_modules\router\lib\layer.js:152:17)
+    at C:\FoodTrack\node_modules\router\index.js:295:15
+    at param (C:\FoodTrack\node_modules\router\index.js:600:14)
+    at param (C:\FoodTrack\node_modules\router\index.js:610:14)
+    at processParams (C:\FoodTrack\node_modules\router\index.js:664:3)
+SqliteError: disk I/O error
+    at file:///C:/FoodTrack/server/index.js:96:86
+    at Layer.handleRequest (C:\FoodTrack\node_modules\router\lib\layer.js:152:17)
+    at next (C:\FoodTrack\node_modules\router\lib\route.js:157:13)
+    at Route.dispatch (C:\FoodTrack\node_modules\router\lib\route.js:117:3)
+    at handle (C:\FoodTrack\node_modules\router\index.js:435:11)
+    at Layer.handleRequest (C:\FoodTrack\node_modules\router\lib\layer.js:152:17)
+    at C:\FoodTrack\node_modules\router\index.js:295:15
+    at param (C:\FoodTrack\node_modules\router\index.js:600:14)
+    at param (C:\FoodTrack\node_modules\router\index.js:610:14)
+    at processParams (C:\FoodTrack\node_modules\router\index.js:664:3)
+SqliteError: disk I/O error
+    at file:///C:/FoodTrack/server/index.js:96:86
+    at Layer.handleRequest (C:\FoodTrack\node_modules\router\lib\layer.js:152:17)
+    at next (C:\FoodTrack\node_modules\router\lib\route.js:157:13)
+    at Route.dispatch (C:\FoodTrack\node_modules\router\lib\route.js:117:3)
+    at handle (C:\FoodTrack\node_modules\router\index.js:435:11)
+    at Layer.handleRequest (C:\FoodTrack\node_modules\router\lib\layer.js:152:17)
+    at C:\FoodTrack\node_modules\router\index.js:295:15
+    at param (C:\FoodTrack\node_modules\router\index.js:600:14)
+    at param (C:\FoodTrack\node_modules\router\index.js:610:14)
+    at processParams (C:\FoodTrack\node_modules\router\index.js:664:3)
+SqliteError: disk I/O error
+    at file:///C:/FoodTrack/server/index.js:96:86
+    at Layer.handleRequest (C:\FoodTrack\node_modules\router\lib\layer.js:152:17)
+    at next (C:\FoodTrack\node_modules\router\lib\route.js:157:13)
+    at Route.dispatch (C:\FoodTrack\node_modules\router\lib\route.js:117:3)
+    at handle (C:\FoodTrack\node_modules\router\index.js:435:11)
+    at Layer.handleRequest (C:\FoodTrack\node_modules\router\lib\layer.js:152:17)
+    at C:\FoodTrack\node_modules\router\index.js:295:15
+    at param (C:\FoodTrack\node_modules\router\index.js:600:14)
+    at param (C:\FoodTrack\node_modules\router\index.js:610:14)
+    at processParams (C:\FoodTrack\node_modules\router\index.js:664:3)
+SqliteError: disk I/O error
+    at file:///C:/FoodTrack/server/index.js:96:86
+    at Layer.handleRequest (C:\FoodTrack\node_modules\router\lib\layer.js:152:17)
+    at next (C:\FoodTrack\node_modules\router\lib\route.js:157:13)
+    at Route.dispatch (C:\FoodTrack\node_modules\router\lib\route.js:117:3)
+    at handle (C:\FoodTrack\node_modules\router\index.js:435:11)
+    at Layer.handleRequest (C:\FoodTrack\node_modules\router\lib\layer.js:152:17)
+    at C:\FoodTrack\node_modules\router\index.js:295:15
+    at param (C:\FoodTrack\node_modules\router\index.js:600:14)
+    at param (C:\FoodTrack\node_modules\router\index.js:610:14)
+    at processParams (C:\FoodTrack\node_modules\router\index.js:664:3)
+SqliteError: disk I/O error
+    at file:///C:/FoodTrack/server/index.js:96:86
+    at Layer.handleRequest (C:\FoodTrack\node_modules\router\lib\layer.js:152:17)
+    at next (C:\FoodTrack\node_modules\router\lib\route.js:157:13)
+    at Route.dispatch (C:\FoodTrack\node_modules\router\lib\route.js:117:3)
+    at handle (C:\FoodTrack\node_modules\router\index.js:435:11)
+    at Layer.handleRequest (C:\FoodTrack\node_modules\router\lib\layer.js:152:17)
+    at C:\FoodTrack\node_modules\router\index.js:295:15
+    at param (C:\FoodTrack\node_modules\router\index.js:600:14)
+    at param (C:\FoodTrack\node_modules\router\index.js:610:14)
+    at processParams (C:\FoodTrack\node_modules\router\index.js:664:3)
+SqliteError: disk I/O error
+    at file:///C:/FoodTrack/server/index.js:96:86
+    at Layer.handleRequest (C:\FoodTrack\node_modules\router\lib\layer.js:152:17)
+    at next (C:\FoodTrack\node_modules\router\lib\route.js:157:13)
+    at Route.dispatch (C:\FoodTrack\node_modules\router\lib\route.js:117:3)
+    at handle (C:\FoodTrack\node_modules\router\index.js:435:11)
+    at Layer.handleRequest (C:\FoodTrack\node_modules\router\lib\layer.js:152:17)
+    at C:\FoodTrack\node_modules\router\index.js:295:15
+    at param (C:\FoodTrack\node_modules\router\index.js:600:14)
+    at param (C:\FoodTrack\node_modules\router\index.js:610:14)
+    at processParams (C:\FoodTrack\node_modules\router\index.js:664:3)
+SqliteError: disk I/O error
+    at file:///C:/FoodTrack/server/index.js:96:86
+    at Layer.handleRequest (C:\FoodTrack\node_modules\router\lib\layer.js:152:17)
+    at next (C:\FoodTrack\node_modules\router\lib\route.js:157:13)
+    at Route.dispatch (C:\FoodTrack\node_modules\router\lib\route.js:117:3)
+    at handle (C:\FoodTrack\node_modules\router\index.js:435:11)
+    at Layer.handleRequest (C:\FoodTrack\node_modules\router\lib\layer.js:152:17)
+    at C:\FoodTrack\node_modules\router\index.js:295:15
+    at param (C:\FoodTrack\node_modules\router\index.js:600:14)
+    at param (C:\FoodTrack\node_modules\router\index.js:610:14)
+    at processParams (C:\FoodTrack\node_modules\router\index.js:664:3)

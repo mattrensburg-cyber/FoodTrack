@@ -921,7 +921,6 @@ function getRecipeTheme(recipe) {
 
 function getRecipeImageSvg(recipe) {
   const theme = getRecipeTheme(recipe);
-  const title = recipe.title.replace(/[<>&"]/g, "");
   return `data:image/svg+xml;utf8,${encodeURIComponent(`
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 650">
       <rect width="900" height="650" fill="${theme.bg}"/>
@@ -937,7 +936,6 @@ function getRecipeImageSvg(recipe) {
       <circle cx="506" cy="270" r="38" fill="#f8fafc" opacity="0.9"/>
       <circle cx="584" cy="248" r="30" fill="${theme.accent}" opacity="0.75"/>
       <text x="450" y="170" text-anchor="middle" font-family="Arial, sans-serif" font-size="78">${theme.emoji}</text>
-      <text x="450" y="585" text-anchor="middle" font-family="Arial, sans-serif" font-size="34" font-weight="700" fill="#0f172a">${title}</text>
     </svg>
   `)}`;
 }
@@ -2782,7 +2780,7 @@ function NutriTrackPage({
 
       <CollapsiblePanel
         title="Saved weeks"
-        subtitle="On Sundays, the current week saves into a compact drop-down row. You can also save it manually."
+        subtitle="On Sundays, the current week saves into a compact drop-down row. Reopen a saved week if it was archived by mistake."
         meta={`${nutriWeekArchives.length} week${nutriWeekArchives.length === 1 ? "" : "s"}`}
         defaultOpen={nutriWeekArchives.length > 0}
       >
@@ -2800,7 +2798,7 @@ function NutriTrackPage({
                 <div className="mt-4 grid gap-3">
                   <div className="flex justify-end">
                     <button type="button" onClick={() => onEditNutriWeek(archive.id)} className="rounded-2xl bg-slate-950 px-4 py-2 text-xs font-semibold text-white shadow-lg transition hover:bg-slate-800">
-                      Edit week
+                      Reopen as current week
                     </button>
                   </div>
                   {weekDays.map((day) => {
@@ -2856,17 +2854,29 @@ function NutriTrackPage({
 function RecipesPage({ recipes, onAddRecipeToDay, onRenameRecipe, onBack }) {
   const [targetDays, setTargetDays] = useState({});
   const [recipeNames, setRecipeNames] = useState({});
+  const [editingRecipeId, setEditingRecipeId] = useState("");
   const getTargetDay = (recipe) => targetDays[recipe.id] || recipe.day || "Monday";
   const getRecipeName = (recipe) => recipeNames[recipe.id] ?? recipe.title;
+  const clearRecipeNameDraft = (recipeId) => {
+    setRecipeNames((prev) => {
+      const next = { ...prev };
+      delete next[recipeId];
+      return next;
+    });
+    setEditingRecipeId("");
+  };
+  const startRecipeNameEdit = (recipe) => {
+    setRecipeNames((prev) => ({ ...prev, [recipe.id]: recipe.title }));
+    setEditingRecipeId(recipe.id);
+  };
   const saveRecipeName = (recipe) => {
-    const savedName = onRenameRecipe(recipe, getRecipeName(recipe));
-    if (savedName) {
-      setRecipeNames((prev) => {
-        const next = { ...prev };
-        delete next[recipe.id];
-        return next;
-      });
+    const nextName = getRecipeName(recipe).trim();
+    if (!nextName || nextName === recipe.title) {
+      clearRecipeNameDraft(recipe.id);
+      return;
     }
+    onRenameRecipe(recipe, nextName);
+    clearRecipeNameDraft(recipe.id);
   };
 
   return (
@@ -2885,13 +2895,10 @@ function RecipesPage({ recipes, onAddRecipeToDay, onRenameRecipe, onBack }) {
       <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
         {recipes.map((recipe) => (
           <article key={recipe.id} className="overflow-hidden rounded-3xl bg-white/85 shadow-lg shadow-slate-200/60 ring-1 ring-slate-100">
-            <div className="aspect-[4/3] overflow-hidden bg-slate-100">
+            <div className="relative aspect-[4/3] overflow-hidden bg-slate-100">
               <img src={recipe.imageUrl} alt={recipe.title} className="h-full w-full object-cover" loading="lazy" />
-            </div>
-            <div className="p-5">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.25em] text-slate-400">{(recipe.days?.length ? recipe.days : [recipe.day]).join(", ")} / {recipe.meal}</p>
+              <div className="absolute inset-x-4 bottom-4 rounded-2xl bg-white/90 px-4 py-3 shadow-lg shadow-slate-900/10 ring-1 ring-white/70 backdrop-blur">
+                {editingRecipeId === recipe.id ? (
                   <input
                     value={getRecipeName(recipe)}
                     onChange={(event) => setRecipeNames((prev) => ({ ...prev, [recipe.id]: event.target.value }))}
@@ -2899,9 +2906,26 @@ function RecipesPage({ recipes, onAddRecipeToDay, onRenameRecipe, onBack }) {
                     onKeyDown={(event) => {
                       if (event.key === "Enter") event.currentTarget.blur();
                     }}
-                    className="mt-1 w-full border-0 bg-transparent px-0 py-1 text-xl font-bold text-slate-950 outline-none transition focus:border-b focus:border-amber-300"
+                    autoFocus
+                    className="w-full border-0 border-b border-amber-300 bg-transparent px-0 py-1 text-center text-xl font-bold text-slate-950 outline-none"
                     aria-label={`Recipe name for ${recipe.title}`}
                   />
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => startRecipeNameEdit(recipe)}
+                    className="block w-full text-center text-xl font-bold text-slate-950 transition hover:text-amber-700"
+                    aria-label={`Edit recipe name for ${recipe.title}`}
+                  >
+                    {recipe.title}
+                  </button>
+                )}
+              </div>
+            </div>
+            <div className="p-5">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.25em] text-slate-400">{(recipe.days?.length ? recipe.days : [recipe.day]).join(", ")} / {recipe.meal}</p>
                 </div>
                 <span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-800 ring-1 ring-amber-100">{recipe.tag}</span>
               </div>
@@ -3214,11 +3238,14 @@ export default function App() {
   const [nutriForm, setNutriForm] = useState({ day: "Monday", ingredient: "", grams: "", kcal: "" });
   const [nutriImportText, setNutriImportText] = useState("");
   const [nutriImportStatus, setNutriImportStatus] = useState("");
+  const [githubSyncStatus, setGithubSyncStatus] = useState("");
+  const [isGithubSyncing, setIsGithubSyncing] = useState(false);
   const [isDatabaseReady, setIsDatabaseReady] = useState(false);
   const [isDatabaseAvailable, setIsDatabaseAvailable] = useState(false);
   const [storageStatus, setStorageStatus] = useState("Opening database");
   const [confettiPieces, setConfettiPieces] = useState([]);
   const achievedMilestoneRef = useRef(null);
+  const pausedAutoArchiveLabelRef = useRef("");
 
   useEffect(() => {
     let isActive = true;
@@ -3333,7 +3360,14 @@ export default function App() {
     "severely obese": "Your BMI is in the severely obese range.",
   }[bmiCategory] || "BMI is a screening tool and does not measure body fat directly.";
   const coachNote = getCoachNote(totals.kcal, totals.protein, totals.fibre, nutritionGoals.calories, nutritionGoals.protein);
-  const recipeCards = useMemo(() => buildRecipeCards(nutriEntries, nutriReferences), [nutriEntries, nutriReferences]);
+  const allRecipeEntries = useMemo(
+    () => sortNutriEntries([
+      ...nutriEntries,
+      ...nutriWeekArchives.flatMap((archive) => Array.isArray(archive.entries) ? archive.entries : []),
+    ]),
+    [nutriEntries, nutriWeekArchives]
+  );
+  const recipeCards = useMemo(() => buildRecipeCards(allRecipeEntries, nutriReferences), [allRecipeEntries, nutriReferences]);
   const foodDatabase = useMemo(() => buildFoodDatabase(nutriReferences, foodDatabaseFavorites, foodDatabaseCategories, foodDatabaseNutrition), [nutriReferences, foodDatabaseFavorites, foodDatabaseCategories, foodDatabaseNutrition]);
   const customFoodCategories = useMemo(
     () => uniqueSorted(Object.values(foodDatabaseCategories)).filter((item) => !defaultFoodCategories.includes(item)),
@@ -3370,6 +3404,7 @@ export default function App() {
     if (!nutriEntries.length) return;
     const now = new Date();
     const label = getWeekArchiveLabel(now);
+    pausedAutoArchiveLabelRef.current = "";
     const archive = {
       id: createId(),
       label,
@@ -3389,11 +3424,12 @@ export default function App() {
     if (!archive) return;
     const editableEntries = sortNutriEntries(archive.entries).map((entry) => ({ ...entry, id: entry.id || createId() }));
     const firstDay = editableEntries[0]?.day || "Monday";
+    pausedAutoArchiveLabelRef.current = getWeekArchiveLabel(new Date());
     setNutriEntries(editableEntries);
     setNutriWeekArchives((prev) => prev.filter((item) => item.id !== archiveId));
     setSelectedNutriDay(firstDay);
     setNutriForm((prev) => ({ ...prev, day: firstDay }));
-    setNutriImportStatus(`Loaded ${archive.label} for editing. Save the week again when the changes are finished.`);
+    setNutriImportStatus(`Reopened ${archive.label} as the current editable week. Save the week again when the changes are finished.`);
     setCurrentPage("nutriTrack");
   }
 
@@ -3402,6 +3438,7 @@ export default function App() {
     const today = new Date();
     if (today.getDay() !== 0) return;
     const label = getWeekArchiveLabel(today);
+    if (pausedAutoArchiveLabelRef.current === label) return;
     if (nutriWeekArchives.some((archive) => archive.label === label)) return;
     archiveCurrentNutriWeek("auto");
   }, [isDatabaseReady, nutriEntries, nutriWeekArchives]);
@@ -3535,6 +3572,59 @@ export default function App() {
     setNutriImportText(event.target.value);
     setNutriImportStatus("");
   };
+  const applyDatabaseState = (databaseState) => {
+    const nextState = normalizeAppState(databaseState);
+    setMeals(nextState.meals);
+    setHabits(nextState.habits);
+    setWeights(nextState.weights);
+    setBloodPressureEntries(nextState.bloodPressureEntries);
+    setExerciseEntries(nextState.exerciseEntries);
+    setNutriEntries(nextState.nutriEntries);
+    setNutriWeekArchives(nextState.nutriWeekArchives);
+    setNutriReferences(nextState.nutriReferences);
+    setFoodDatabaseFavorites(nextState.foodDatabaseFavorites);
+    setFoodDatabaseCategories(nextState.foodDatabaseCategories);
+    setFoodDatabaseNutrition(nextState.foodDatabaseNutrition);
+    setWeightGoals(nextState.weightGoals);
+    setGoalForm(nextState.weightGoals);
+    setBmiProfile(nextState.bmiProfile);
+    setProfileForm(nextState.bmiProfile);
+  };
+  const handleSyncGithubImports = async () => {
+    setIsGithubSyncing(true);
+    setGithubSyncStatus("Syncing pending AI imports...");
+    setNutriImportStatus("");
+
+    try {
+      const response = await fetch("/api/github/sync-nutritrack", {
+        method: "POST",
+      });
+      const result = await response.json();
+
+      if (!response.ok) {
+        const message = result.error || "GitHub sync failed.";
+        setNutriImportStatus(message);
+        setGithubSyncStatus(message);
+        return;
+      }
+
+      const databaseState = await readDatabaseRecord(appStateStorageKey);
+      if (databaseState) applyDatabaseState(databaseState);
+
+      const message = `Synced ${result.imported} NutriTrack item${result.imported === 1 ? "" : "s"}.`;
+      setNutriImportStatus(message);
+      setGithubSyncStatus(result.message || message);
+      setStorageStatus("Database loaded");
+      setIsDatabaseAvailable(true);
+      setIsDatabaseReady(true);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "GitHub sync failed.";
+      setNutriImportStatus(message);
+      setGithubSyncStatus(message);
+    } finally {
+      setIsGithubSyncing(false);
+    }
+  };
   const handleImportNutriTrack = () => {
     try {
       const importPayload = normalizeNutriImportPayload(nutriImportText);
@@ -3661,12 +3751,17 @@ export default function App() {
   const handleRenameRecipe = (recipe, nextName) => {
     const title = String(nextName || "").trim();
     if (!recipe?.title || !title || title === recipe.title) return "";
-    setNutriEntries((prev) => sortNutriEntries(prev.map((entry) => {
+    const renameEntry = (entry) => {
       const entryTitle = entry.recipeName || `${entry.meal} recipe`;
       const sameRecipe = entryTitle === recipe.title
         && (entry.meal || "Meal") === recipe.meal
         && (entry.tag || "Recipe") === recipe.tag;
       return sameRecipe ? { ...entry, recipeName: title } : entry;
+    };
+    setNutriEntries((prev) => sortNutriEntries(prev.map(renameEntry)));
+    setNutriWeekArchives((prev) => prev.map((archive) => ({
+      ...archive,
+      entries: sortNutriEntries((archive.entries || []).map(renameEntry)),
     })));
     setNutriImportStatus(`Renamed recipe to ${title}.`);
     return title;
@@ -3832,6 +3927,16 @@ export default function App() {
                 <div className="mt-4 rounded-3xl bg-slate-50 p-4 text-sm text-slate-600">
                   {nutriWeekArchives.length} saved week{nutriWeekArchives.length === 1 ? "" : "s"} available.
                 </div>
+                <button
+                  type="button"
+                  onClick={handleSyncGithubImports}
+                  disabled={isGithubSyncing}
+                  className="mt-4 w-full rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white shadow-lg transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+                >
+                  {isGithubSyncing ? "Syncing..." : "Sync pending AI imports"}
+                </button>
+                {githubSyncStatus && <p className="mt-3 text-sm font-semibold text-slate-600">{githubSyncStatus}</p>}
+                <button type="button" onClick={openNutriTrackPage} className="mt-3 w-full rounded-2xl bg-slate-950 px-4 py-3 text-sm font-semibold text-white shadow-lg transition hover:bg-slate-800">Open NutriTrack</button>
               </div>
               <div className="rounded-3xl bg-white/80 p-5 shadow-lg shadow-slate-200/60 ring-1 ring-slate-100">
                 <h2 className="text-xl font-bold">Recipe cards</h2>
