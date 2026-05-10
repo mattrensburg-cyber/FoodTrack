@@ -1265,6 +1265,7 @@ function createFallbackAppState() {
     foodDatabaseFavorites: {},
     foodDatabaseCategories: {},
     foodDatabaseNutrition: {},
+    nutriAutoArchivePausedLabel: "",
   };
 }
 
@@ -1320,6 +1321,7 @@ function normalizeAppState(state) {
     foodDatabaseFavorites: state.foodDatabaseFavorites && typeof state.foodDatabaseFavorites === "object" && !Array.isArray(state.foodDatabaseFavorites) ? state.foodDatabaseFavorites : fallback.foodDatabaseFavorites,
     foodDatabaseCategories: state.foodDatabaseCategories && typeof state.foodDatabaseCategories === "object" && !Array.isArray(state.foodDatabaseCategories) ? state.foodDatabaseCategories : fallback.foodDatabaseCategories,
     foodDatabaseNutrition: state.foodDatabaseNutrition && typeof state.foodDatabaseNutrition === "object" && !Array.isArray(state.foodDatabaseNutrition) ? state.foodDatabaseNutrition : fallback.foodDatabaseNutrition,
+    nutriAutoArchivePausedLabel: String(state.nutriAutoArchivePausedLabel || ""),
   };
 }
 
@@ -3283,6 +3285,7 @@ export default function App() {
   const [foodDatabaseFavorites, setFoodDatabaseFavorites] = useState(() => fallbackAppState.foodDatabaseFavorites);
   const [foodDatabaseCategories, setFoodDatabaseCategories] = useState(() => fallbackAppState.foodDatabaseCategories);
   const [foodDatabaseNutrition, setFoodDatabaseNutrition] = useState(() => fallbackAppState.foodDatabaseNutrition);
+  const [nutriAutoArchivePausedLabel, setNutriAutoArchivePausedLabel] = useState(() => fallbackAppState.nutriAutoArchivePausedLabel);
   const [selectedNutriDay, setSelectedNutriDay] = useState("Monday");
   const [form, setForm] = useState({ meal: "Snack", items: "", kcal: "", protein: "", fibre: "" });
   const [weightForm, setWeightForm] = useState({ date: "", weight: "" });
@@ -3298,7 +3301,6 @@ export default function App() {
   const [storageStatus, setStorageStatus] = useState("Opening database");
   const [confettiPieces, setConfettiPieces] = useState([]);
   const achievedMilestoneRef = useRef(null);
-  const pausedAutoArchiveLabelRef = useRef("");
 
   useEffect(() => {
     let isActive = true;
@@ -3320,6 +3322,7 @@ export default function App() {
           setFoodDatabaseFavorites(nextState.foodDatabaseFavorites);
           setFoodDatabaseCategories(nextState.foodDatabaseCategories);
           setFoodDatabaseNutrition(nextState.foodDatabaseNutrition);
+          setNutriAutoArchivePausedLabel(nextState.nutriAutoArchivePausedLabel);
           setWeightGoals(nextState.weightGoals);
           setGoalForm(nextState.weightGoals);
           setBmiProfile(nextState.bmiProfile);
@@ -3361,6 +3364,7 @@ export default function App() {
       foodDatabaseFavorites,
       foodDatabaseCategories,
       foodDatabaseNutrition,
+      nutriAutoArchivePausedLabel,
       weightGoals,
       bmiProfile,
       savedAt: new Date().toISOString(),
@@ -3384,7 +3388,7 @@ export default function App() {
     return () => {
       isActive = false;
     };
-  }, [isDatabaseReady, isDatabaseAvailable, meals, habits, weights, bloodPressureEntries, exerciseEntries, nutriEntries, nutriWeekArchives, nutriReferences, foodDatabaseFavorites, foodDatabaseCategories, foodDatabaseNutrition, weightGoals, bmiProfile]);
+  }, [isDatabaseReady, isDatabaseAvailable, meals, habits, weights, bloodPressureEntries, exerciseEntries, nutriEntries, nutriWeekArchives, nutriReferences, foodDatabaseFavorites, foodDatabaseCategories, foodDatabaseNutrition, nutriAutoArchivePausedLabel, weightGoals, bmiProfile]);
 
   const dashboardDay = getTodayWeekDay();
   const totals = useMemo(() => calculateNutriDashboardTotals(nutriEntries, nutriReferences, dashboardDay), [nutriEntries, nutriReferences, dashboardDay]);
@@ -3457,7 +3461,7 @@ export default function App() {
     if (!nutriEntries.length) return;
     const now = new Date();
     const label = getWeekArchiveLabel(now);
-    pausedAutoArchiveLabelRef.current = "";
+    setNutriAutoArchivePausedLabel("");
     const archive = {
       id: createId(),
       label,
@@ -3477,7 +3481,7 @@ export default function App() {
     if (!archive) return;
     const editableEntries = sortNutriEntries(archive.entries).map((entry) => ({ ...entry, id: entry.id || createId() }));
     const firstDay = editableEntries[0]?.day || "Monday";
-    pausedAutoArchiveLabelRef.current = getWeekArchiveLabel(new Date());
+    setNutriAutoArchivePausedLabel(getWeekArchiveLabel(new Date()));
     setNutriEntries(editableEntries);
     setNutriWeekArchives((prev) => prev.filter((item) => item.id !== archiveId));
     setSelectedNutriDay(firstDay);
@@ -3491,10 +3495,10 @@ export default function App() {
     const today = new Date();
     if (today.getDay() !== 0) return;
     const label = getWeekArchiveLabel(today);
-    if (pausedAutoArchiveLabelRef.current === label) return;
+    if (nutriAutoArchivePausedLabel === label) return;
     if (nutriWeekArchives.some((archive) => archive.label === label)) return;
     archiveCurrentNutriWeek("auto");
-  }, [isDatabaseReady, nutriEntries, nutriWeekArchives]);
+  }, [isDatabaseReady, nutriEntries, nutriWeekArchives, nutriAutoArchivePausedLabel]);
 
   const handleFormChange = (field) => (event) => {
     setForm((prev) => ({ ...prev, [field]: event.target.value }));
@@ -3638,6 +3642,7 @@ export default function App() {
     setFoodDatabaseFavorites(nextState.foodDatabaseFavorites);
     setFoodDatabaseCategories(nextState.foodDatabaseCategories);
     setFoodDatabaseNutrition(nextState.foodDatabaseNutrition);
+    setNutriAutoArchivePausedLabel(nextState.nutriAutoArchivePausedLabel);
     setWeightGoals(nextState.weightGoals);
     setGoalForm(nextState.weightGoals);
     setBmiProfile(nextState.bmiProfile);
