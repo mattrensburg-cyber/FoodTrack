@@ -409,10 +409,10 @@ function getProductMetadata(item = {}) {
     nutritionSource: String(item.nutritionSource || "").trim(),
     processingLevel: String(item.processingLevel || item.processing_level || "").trim(),
     ingredientsList: normalizeStringList(item.ingredientsList || item.ingredients_list),
-    brandNutritionPer100g: normalizePlainObject(item.brandNutritionPer100g),
-    brandNutritionPer100ml: normalizePlainObject(item.brandNutritionPer100ml),
-    brandNutritionPer20g: normalizePlainObject(item.brandNutritionPer20g),
-    brandNutritionPerServing: normalizePlainObject(item.brandNutritionPerServing),
+    brandNutritionPer100g: roundNutritionObject(item.brandNutritionPer100g),
+    brandNutritionPer100ml: roundNutritionObject(item.brandNutritionPer100ml),
+    brandNutritionPer20g: roundNutritionObject(item.brandNutritionPer20g),
+    brandNutritionPerServing: roundNutritionObject(item.brandNutritionPerServing),
   };
 }
 
@@ -426,13 +426,13 @@ function normalizeNutriReference(reference) {
     serving: reference.serving || "",
     nutrition: reference.nutrition && typeof reference.nutrition === "object" && !Array.isArray(reference.nutrition)
       ? {
-          caloriesKcal: Number.isFinite(Number(reference.nutrition.caloriesKcal)) ? safeNumber(reference.nutrition.caloriesKcal) : undefined,
-          waterPercent: Number.isFinite(Number(reference.nutrition.waterPercent)) ? safeNumber(reference.nutrition.waterPercent) : undefined,
-          carbohydratesG: Number.isFinite(Number(reference.nutrition.carbohydratesG)) ? safeNumber(reference.nutrition.carbohydratesG) : undefined,
-          fibreG: Number.isFinite(Number(reference.nutrition.fibreG)) ? safeNumber(reference.nutrition.fibreG) : undefined,
-          sugarG: Number.isFinite(Number(reference.nutrition.sugarG)) ? safeNumber(reference.nutrition.sugarG) : undefined,
-          proteinG: Number.isFinite(Number(reference.nutrition.proteinG)) ? safeNumber(reference.nutrition.proteinG) : undefined,
-          fatG: Number.isFinite(Number(reference.nutrition.fatG)) ? safeNumber(reference.nutrition.fatG) : undefined,
+          caloriesKcal: Number.isFinite(Number(reference.nutrition.caloriesKcal)) ? roundNutritionValue(reference.nutrition.caloriesKcal) : undefined,
+          waterPercent: Number.isFinite(Number(reference.nutrition.waterPercent)) ? roundNutritionValue(reference.nutrition.waterPercent) : undefined,
+          carbohydratesG: Number.isFinite(Number(reference.nutrition.carbohydratesG)) ? roundNutritionValue(reference.nutrition.carbohydratesG) : undefined,
+          fibreG: Number.isFinite(Number(reference.nutrition.fibreG)) ? roundNutritionValue(reference.nutrition.fibreG) : undefined,
+          sugarG: Number.isFinite(Number(reference.nutrition.sugarG)) ? roundNutritionValue(reference.nutrition.sugarG) : undefined,
+          proteinG: Number.isFinite(Number(reference.nutrition.proteinG)) ? roundNutritionValue(reference.nutrition.proteinG) : undefined,
+          fatG: Number.isFinite(Number(reference.nutrition.fatG)) ? roundNutritionValue(reference.nutrition.fatG) : undefined,
         }
       : {},
     keyVitaminsMinerals: Array.isArray(reference.keyVitaminsMinerals) ? reference.keyVitaminsMinerals.map(String).filter(Boolean) : [],
@@ -545,18 +545,18 @@ function buildNutriEntryFromImportItem(item, context = {}) {
     ingredient: ingredientName,
     grams,
     unit: item.unit || "g",
-    kcal,
+    kcal: roundNutritionValue(kcal),
     ...getProductMetadata(item),
-    micronutrients: item.micronutrients || {},
-    protein: Number.isFinite(Number(item.protein)) ? safeNumber(item.protein) : undefined,
-    carbs: Number.isFinite(Number(item.carbs ?? item.carbohydrates ?? item.carbohydrate)) ? safeNumber(item.carbs ?? item.carbohydrates ?? item.carbohydrate) : undefined,
-    fat: Number.isFinite(Number(item.fat)) ? safeNumber(item.fat) : undefined,
-    sugar: Number.isFinite(Number(item.sugar ?? item.sugars)) ? safeNumber(item.sugar ?? item.sugars) : undefined,
+    micronutrients: roundNutritionObject(item.micronutrients),
+    protein: Number.isFinite(Number(item.protein)) ? roundNutritionValue(item.protein) : undefined,
+    carbs: Number.isFinite(Number(item.carbs ?? item.carbohydrates ?? item.carbohydrate)) ? roundNutritionValue(item.carbs ?? item.carbohydrates ?? item.carbohydrate) : undefined,
+    fat: Number.isFinite(Number(item.fat)) ? roundNutritionValue(item.fat) : undefined,
+    sugar: Number.isFinite(Number(item.sugar ?? item.sugars)) ? roundNutritionValue(item.sugar ?? item.sugars) : undefined,
     fibreTypes: Array.isArray(item.fibreTypes) ? item.fibreTypes.map(String).filter(Boolean) : [],
     healthHighlights: Array.isArray(item.healthHighlights) ? item.healthHighlights.map(String).filter(Boolean) : [],
     aminoAcidProfile: item.aminoAcidProfile || null,
-    fibrePer100g: Number.isFinite(Number(item.fibrePer100g)) ? safeNumber(item.fibrePer100g) : undefined,
-    fibreG: Number.isFinite(Number(item.fibreG ?? item.fibre)) ? safeNumber(item.fibreG ?? item.fibre) : undefined,
+    fibrePer100g: Number.isFinite(Number(item.fibrePer100g)) ? roundNutritionValue(item.fibrePer100g) : undefined,
+    fibreG: Number.isFinite(Number(item.fibreG ?? item.fibre)) ? roundNutritionValue(item.fibreG ?? item.fibre) : undefined,
   };
 }
 
@@ -572,18 +572,18 @@ function normalizeNutriEntry(entry, fallbackDay = "Monday") {
     ingredient: entry.ingredient || "",
     grams: safeNumber(entry.grams),
     unit: entry.unit || "g",
-    kcal: safeNumber(entry.kcal),
+    kcal: roundNutritionValue(entry.kcal),
     ...getProductMetadata(entry),
-    micronutrients: entry.micronutrients || {},
-    protein: Number.isFinite(Number(entry.protein)) ? safeNumber(entry.protein) : undefined,
-    carbs: Number.isFinite(Number(entry.carbs)) ? safeNumber(entry.carbs) : undefined,
-    fat: Number.isFinite(Number(entry.fat)) ? safeNumber(entry.fat) : undefined,
-    sugar: Number.isFinite(Number(entry.sugar)) ? safeNumber(entry.sugar) : undefined,
+    micronutrients: roundNutritionObject(entry.micronutrients),
+    protein: Number.isFinite(Number(entry.protein)) ? roundNutritionValue(entry.protein) : undefined,
+    carbs: Number.isFinite(Number(entry.carbs)) ? roundNutritionValue(entry.carbs) : undefined,
+    fat: Number.isFinite(Number(entry.fat)) ? roundNutritionValue(entry.fat) : undefined,
+    sugar: Number.isFinite(Number(entry.sugar)) ? roundNutritionValue(entry.sugar) : undefined,
     fibreTypes: Array.isArray(entry.fibreTypes) ? entry.fibreTypes.map(String).filter(Boolean) : [],
     healthHighlights: Array.isArray(entry.healthHighlights) ? entry.healthHighlights.map(String).filter(Boolean) : [],
     aminoAcidProfile: entry.aminoAcidProfile || null,
-    fibrePer100g: Number.isFinite(Number(entry.fibrePer100g)) ? safeNumber(entry.fibrePer100g) : undefined,
-    fibreG: Number.isFinite(Number(entry.fibreG)) ? safeNumber(entry.fibreG) : undefined,
+    fibrePer100g: Number.isFinite(Number(entry.fibrePer100g)) ? roundNutritionValue(entry.fibrePer100g) : undefined,
+    fibreG: Number.isFinite(Number(entry.fibreG)) ? roundNutritionValue(entry.fibreG) : undefined,
   };
 }
 
@@ -591,7 +591,7 @@ function scaleNumericObjectValues(value, factor) {
   return Object.fromEntries(
     Object.entries(normalizePlainObject(value)).map(([key, item]) => [
       key,
-      Number.isFinite(Number(item)) ? Number((safeNumber(item) * factor).toFixed(2)) : item,
+      Number.isFinite(Number(item)) ? roundNutritionValue(safeNumber(item) * factor) : item,
     ])
   );
 }
@@ -1025,7 +1025,7 @@ function getFoodCategory(name) {
   return "Snacks";
 }
 
-function buildFoodDatabase(references = [], favorites = {}, categoryOverrides = {}, nutritionOverrides = {}) {
+function buildFoodDatabase(references = [], favorites = {}, categoryOverrides = {}, nutritionOverrides = {}, deletedFoods = {}) {
   const foods = new Map(defaultFoodDatabase.map((food) => [food.name.toLowerCase(), food]));
 
   references.forEach((reference) => {
@@ -1091,6 +1091,7 @@ function buildFoodDatabase(references = [], favorites = {}, categoryOverrides = 
   });
 
   return [...foods.values()]
+    .filter((food) => !deletedFoods[food.name])
     .map((food) => ({ ...food, favorite: Boolean(favorites[food.name]) }))
     .sort((a, b) => Number(b.favorite) - Number(a.favorite) || a.name.localeCompare(b.name));
 }
@@ -1255,6 +1256,20 @@ function safeNumber(value, fallback = 0) {
   return Number.isFinite(number) ? number : fallback;
 }
 
+function roundNutritionValue(value) {
+  return Number.isFinite(Number(value)) ? Number(Number(value).toFixed(1)) : value;
+}
+
+function roundNutritionObject(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  return Object.fromEntries(
+    Object.entries(value).map(([key, item]) => [
+      key,
+      Number.isFinite(Number(item)) ? roundNutritionValue(item) : item,
+    ])
+  );
+}
+
 async function readDatabaseRecord(key) {
   const response = await fetch(`/api/app-state/${encodeURIComponent(key)}`);
   if (response.status === 404) return null;
@@ -1326,6 +1341,7 @@ function createFallbackAppState() {
     foodDatabaseFavorites: {},
     foodDatabaseCategories: {},
     foodDatabaseNutrition: {},
+    foodDatabaseDeleted: {},
     nutriAutoArchivePausedLabel: "",
     mounjaroNextStrength: "2.5 mg",
     mounjaroNextStrengthStartDate: "",
@@ -1391,6 +1407,7 @@ function normalizeAppState(state) {
     foodDatabaseFavorites: state.foodDatabaseFavorites && typeof state.foodDatabaseFavorites === "object" && !Array.isArray(state.foodDatabaseFavorites) ? state.foodDatabaseFavorites : fallback.foodDatabaseFavorites,
     foodDatabaseCategories: state.foodDatabaseCategories && typeof state.foodDatabaseCategories === "object" && !Array.isArray(state.foodDatabaseCategories) ? state.foodDatabaseCategories : fallback.foodDatabaseCategories,
     foodDatabaseNutrition: state.foodDatabaseNutrition && typeof state.foodDatabaseNutrition === "object" && !Array.isArray(state.foodDatabaseNutrition) ? state.foodDatabaseNutrition : fallback.foodDatabaseNutrition,
+    foodDatabaseDeleted: state.foodDatabaseDeleted && typeof state.foodDatabaseDeleted === "object" && !Array.isArray(state.foodDatabaseDeleted) ? state.foodDatabaseDeleted : fallback.foodDatabaseDeleted,
     nutriAutoArchivePausedLabel: String(state.nutriAutoArchivePausedLabel || ""),
     mounjaroNextStrength: mounjaroStrengths.includes(state.mounjaroNextStrength) ? state.mounjaroNextStrength : fallback.mounjaroNextStrength,
     mounjaroNextStrengthStartDate: /^\d{4}-\d{2}-\d{2}$/.test(String(state.mounjaroNextStrengthStartDate || "")) ? state.mounjaroNextStrengthStartDate : "",
@@ -3325,7 +3342,7 @@ function RecipesPage({ recipes, onAddRecipeToDay, onRenameRecipe, onDeleteRecipe
   );
 }
 
-function FoodDatabasePage({ foods, selectedDay, customCategories, onAddFoodToNutriTrack, onUseFoodInRecipe, onToggleFavorite, onMoveFoodCategory, onCreateFoodCategory, onUpdateFoodNutrition, onBack }) {
+function FoodDatabasePage({ foods, selectedDay, customCategories, onAddFoodToNutriTrack, onUseFoodInRecipe, onToggleFavorite, onMoveFoodCategory, onCreateFoodCategory, onUpdateFoodNutrition, onDeleteFood, onBack }) {
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("All");
   const [newCategory, setNewCategory] = useState("");
@@ -3370,6 +3387,12 @@ function FoodDatabasePage({ foods, selectedDay, customCategories, onAddFoodToNut
   };
   const toggleSelectedFood = (foodName) => {
     setSelectedFoods((prev) => prev.includes(foodName) ? prev.filter((item) => item !== foodName) : [...prev, foodName]);
+  };
+  const handleDeleteFood = (event, food) => {
+    event.preventDefault();
+    if (typeof window !== "undefined" && !window.confirm(`Delete ${food.name} from the food database?`)) return;
+    onDeleteFood(food.name);
+    setSelectedFoods((prev) => prev.filter((item) => item !== food.name));
   };
 
   return (
@@ -3546,6 +3569,7 @@ function FoodDatabasePage({ foods, selectedDay, customCategories, onAddFoodToNut
                         <button type="button" onClick={(event) => { event.preventDefault(); onToggleFavorite(food.name); }} className="rounded-xl bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800 ring-1 ring-amber-100">{food.favorite ? "Saved" : "Favourite"}</button>
                         <button type="button" onClick={(event) => { event.preventDefault(); onAddFoodToNutriTrack(food); }} className="rounded-xl bg-slate-950 px-3 py-2 text-xs font-semibold text-white shadow-lg transition hover:bg-slate-800">Add to NutriTrack</button>
                         <button type="button" onClick={(event) => { event.preventDefault(); onUseFoodInRecipe(food); }} className="rounded-xl bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-900 ring-1 ring-emerald-100">Use in recipe</button>
+                        <button type="button" onClick={(event) => handleDeleteFood(event, food)} className="rounded-xl bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700 ring-1 ring-rose-100 transition hover:bg-rose-100">Delete food</button>
                       </div>
                       <p className="text-[10px] font-semibold text-slate-500">Adds to {selectedDay} using the common portion.</p>
                     </div>
@@ -3587,6 +3611,7 @@ export default function App() {
   const [foodDatabaseFavorites, setFoodDatabaseFavorites] = useState(() => fallbackAppState.foodDatabaseFavorites);
   const [foodDatabaseCategories, setFoodDatabaseCategories] = useState(() => fallbackAppState.foodDatabaseCategories);
   const [foodDatabaseNutrition, setFoodDatabaseNutrition] = useState(() => fallbackAppState.foodDatabaseNutrition);
+  const [foodDatabaseDeleted, setFoodDatabaseDeleted] = useState(() => fallbackAppState.foodDatabaseDeleted);
   const [nutriAutoArchivePausedLabel, setNutriAutoArchivePausedLabel] = useState(() => fallbackAppState.nutriAutoArchivePausedLabel);
   const [mounjaroNextStrength, setMounjaroNextStrength] = useState(() => fallbackAppState.mounjaroNextStrength);
   const [mounjaroNextStrengthStartDate, setMounjaroNextStrengthStartDate] = useState(() => fallbackAppState.mounjaroNextStrengthStartDate);
@@ -3628,6 +3653,7 @@ export default function App() {
           setFoodDatabaseFavorites(nextState.foodDatabaseFavorites);
           setFoodDatabaseCategories(nextState.foodDatabaseCategories);
           setFoodDatabaseNutrition(nextState.foodDatabaseNutrition);
+          setFoodDatabaseDeleted(nextState.foodDatabaseDeleted);
           setNutriAutoArchivePausedLabel(nextState.nutriAutoArchivePausedLabel);
           setMounjaroNextStrength(nextState.mounjaroNextStrength);
           setMounjaroNextStrengthStartDate(nextState.mounjaroNextStrengthStartDate);
@@ -3673,6 +3699,7 @@ export default function App() {
       foodDatabaseFavorites,
       foodDatabaseCategories,
       foodDatabaseNutrition,
+      foodDatabaseDeleted,
       nutriAutoArchivePausedLabel,
       mounjaroNextStrength,
       mounjaroNextStrengthStartDate,
@@ -3699,7 +3726,7 @@ export default function App() {
     return () => {
       isActive = false;
     };
-  }, [isDatabaseReady, isDatabaseAvailable, meals, habits, weights, bloodPressureEntries, exerciseEntries, mounjaroEntries, nutriEntries, nutriWeekArchives, nutriReferences, foodDatabaseFavorites, foodDatabaseCategories, foodDatabaseNutrition, nutriAutoArchivePausedLabel, mounjaroNextStrength, mounjaroNextStrengthStartDate, weightGoals, bmiProfile]);
+  }, [isDatabaseReady, isDatabaseAvailable, meals, habits, weights, bloodPressureEntries, exerciseEntries, mounjaroEntries, nutriEntries, nutriWeekArchives, nutriReferences, foodDatabaseFavorites, foodDatabaseCategories, foodDatabaseNutrition, foodDatabaseDeleted, nutriAutoArchivePausedLabel, mounjaroNextStrength, mounjaroNextStrengthStartDate, weightGoals, bmiProfile]);
 
   const dashboardDay = getTodayWeekDay();
   const totals = useMemo(() => calculateNutriDashboardTotals(nutriEntries, nutriReferences, dashboardDay), [nutriEntries, nutriReferences, dashboardDay]);
@@ -3738,7 +3765,7 @@ export default function App() {
     [nutriEntries, nutriWeekArchives]
   );
   const recipeCards = useMemo(() => buildRecipeCards(allRecipeEntries, nutriReferences), [allRecipeEntries, nutriReferences]);
-  const foodDatabase = useMemo(() => buildFoodDatabase(nutriReferences, foodDatabaseFavorites, foodDatabaseCategories, foodDatabaseNutrition), [nutriReferences, foodDatabaseFavorites, foodDatabaseCategories, foodDatabaseNutrition]);
+  const foodDatabase = useMemo(() => buildFoodDatabase(nutriReferences, foodDatabaseFavorites, foodDatabaseCategories, foodDatabaseNutrition, foodDatabaseDeleted), [nutriReferences, foodDatabaseFavorites, foodDatabaseCategories, foodDatabaseNutrition, foodDatabaseDeleted]);
   const customFoodCategories = useMemo(
     () => uniqueSorted(Object.values(foodDatabaseCategories)).filter((item) => !defaultFoodCategories.includes(item)),
     [foodDatabaseCategories]
@@ -3984,6 +4011,7 @@ export default function App() {
     setFoodDatabaseFavorites(nextState.foodDatabaseFavorites);
     setFoodDatabaseCategories(nextState.foodDatabaseCategories);
     setFoodDatabaseNutrition(nextState.foodDatabaseNutrition);
+    setFoodDatabaseDeleted(nextState.foodDatabaseDeleted);
     setNutriAutoArchivePausedLabel(nextState.nutriAutoArchivePausedLabel);
     setMounjaroNextStrength(nextState.mounjaroNextStrength);
     setMounjaroNextStrengthStartDate(nextState.mounjaroNextStrengthStartDate);
@@ -4085,9 +4113,30 @@ export default function App() {
       ...prev,
       [name]: {
         ...(prev[name] || {}),
-        [key]: value === "" ? "" : safeNumber(value),
+        [key]: value === "" ? "" : roundNutritionValue(value),
       },
     }));
+  };
+  const handleDeleteFood = (foodName) => {
+    const name = String(foodName || "").trim();
+    if (!name) return;
+    setFoodDatabaseDeleted((prev) => ({ ...prev, [name]: true }));
+    setFoodDatabaseFavorites((prev) => {
+      const next = { ...prev };
+      delete next[name];
+      return next;
+    });
+    setFoodDatabaseCategories((prev) => {
+      const next = { ...prev };
+      delete next[name];
+      return next;
+    });
+    setFoodDatabaseNutrition((prev) => {
+      const next = { ...prev };
+      delete next[name];
+      return next;
+    });
+    setNutriImportStatus(`Deleted ${name} from the food database.`);
   };
   const handleAddFoodToNutriTrack = (food) => {
     const grams = safeNumber(food.portion, 100);
@@ -4503,6 +4552,7 @@ export default function App() {
             onMoveFoodCategory={handleMoveFoodCategory}
             onCreateFoodCategory={handleCreateFoodCategory}
             onUpdateFoodNutrition={handleUpdateFoodNutrition}
+            onDeleteFood={handleDeleteFood}
             onBack={openDashboardPage}
           />
         )}

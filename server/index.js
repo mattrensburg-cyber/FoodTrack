@@ -93,6 +93,20 @@ function safeNumber(value, fallback = 0) {
   return Number.isFinite(number) ? number : fallback;
 }
 
+function roundNutritionValue(value) {
+  return Number.isFinite(Number(value)) ? Number(Number(value).toFixed(1)) : value;
+}
+
+function roundNutritionObject(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  return Object.fromEntries(
+    Object.entries(value).map(([key, item]) => [
+      key,
+      Number.isFinite(Number(item)) ? roundNutritionValue(item) : item,
+    ])
+  );
+}
+
 function normalizePlainObject(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : {};
 }
@@ -126,10 +140,10 @@ function getProductMetadata(item = {}) {
     nutritionSource: String(item.nutritionSource || "").trim(),
     processingLevel: String(item.processingLevel || item.processing_level || "").trim(),
     ingredientsList: normalizeStringList(item.ingredientsList || item.ingredients_list),
-    brandNutritionPer100g: normalizePlainObject(item.brandNutritionPer100g),
-    brandNutritionPer100ml: normalizePlainObject(item.brandNutritionPer100ml),
-    brandNutritionPer20g: normalizePlainObject(item.brandNutritionPer20g),
-    brandNutritionPerServing: normalizePlainObject(item.brandNutritionPerServing),
+    brandNutritionPer100g: roundNutritionObject(item.brandNutritionPer100g),
+    brandNutritionPer100ml: roundNutritionObject(item.brandNutritionPer100ml),
+    brandNutritionPer20g: roundNutritionObject(item.brandNutritionPer20g),
+    brandNutritionPerServing: roundNutritionObject(item.brandNutritionPerServing),
   };
 }
 
@@ -171,13 +185,13 @@ function normalizeNutriEntry(item, context = {}) {
     ingredient,
     grams,
     unit: item.unit || "g",
-    kcal,
+    kcal: roundNutritionValue(kcal),
     ...getProductMetadata(item),
-    micronutrients: normalizePlainObject(item.micronutrients),
-    protein: Number.isFinite(Number(item.protein)) ? safeNumber(item.protein) : undefined,
-    carbs: Number.isFinite(Number(item.carbs ?? item.carbohydrates ?? item.carbohydrate)) ? safeNumber(item.carbs ?? item.carbohydrates ?? item.carbohydrate) : undefined,
-    fat: Number.isFinite(Number(item.fat)) ? safeNumber(item.fat) : undefined,
-    sugar: Number.isFinite(Number(item.sugar ?? item.sugars)) ? safeNumber(item.sugar ?? item.sugars) : undefined,
+    micronutrients: roundNutritionObject(item.micronutrients),
+    protein: Number.isFinite(Number(item.protein)) ? roundNutritionValue(item.protein) : undefined,
+    carbs: Number.isFinite(Number(item.carbs ?? item.carbohydrates ?? item.carbohydrate)) ? roundNutritionValue(item.carbs ?? item.carbohydrates ?? item.carbohydrate) : undefined,
+    fat: Number.isFinite(Number(item.fat)) ? roundNutritionValue(item.fat) : undefined,
+    sugar: Number.isFinite(Number(item.sugar ?? item.sugars)) ? roundNutritionValue(item.sugar ?? item.sugars) : undefined,
     fibreTypes: Array.isArray(item.fibreTypes) ? item.fibreTypes.map(String).filter(Boolean) : [],
     healthHighlights: Array.isArray(item.healthHighlights) ? item.healthHighlights.map(String).filter(Boolean) : [],
     aminoAcidProfile: item.aminoAcidProfile && typeof item.aminoAcidProfile === "object" && !Array.isArray(item.aminoAcidProfile)
@@ -186,8 +200,8 @@ function normalizeNutriEntry(item, context = {}) {
           keyAminoAcids: normalizeAminoAcidList(item.aminoAcidProfile.keyAminoAcids),
         }
       : null,
-    fibrePer100g: Number.isFinite(Number(item.fibrePer100g)) ? safeNumber(item.fibrePer100g) : undefined,
-    fibreG: Number.isFinite(Number(item.fibreG ?? item.fibre)) ? safeNumber(item.fibreG ?? item.fibre) : undefined,
+    fibrePer100g: Number.isFinite(Number(item.fibrePer100g)) ? roundNutritionValue(item.fibrePer100g) : undefined,
+    fibreG: Number.isFinite(Number(item.fibreG ?? item.fibre)) ? roundNutritionValue(item.fibreG ?? item.fibre) : undefined,
   };
 }
 
@@ -221,10 +235,10 @@ function normalizeMealSummaryEntry(entry, payload = {}) {
     ingredient: recipeName,
     grams: 1,
     unit: "meal",
-    kcal,
-    protein,
-    fibreG: fibre,
-    fibrePer100g: fibre,
+    kcal: roundNutritionValue(kcal),
+    protein: Number.isFinite(Number(protein)) ? roundNutritionValue(protein) : protein,
+    fibreG: Number.isFinite(Number(fibre)) ? roundNutritionValue(fibre) : fibre,
+    fibrePer100g: Number.isFinite(Number(fibre)) ? roundNutritionValue(fibre) : fibre,
     healthHighlights: Array.isArray(entry.healthHighlights) ? entry.healthHighlights.map(String).filter(Boolean) : [],
   };
 }
@@ -320,12 +334,12 @@ function normalizeNutriReferenceFromEntry(entry) {
     ...getProductMetadata(entry),
     serving: isPer100Unit ? `estimated per 100${unit}` : `per ${amount || 1}${unit}`,
     nutrition: {
-      caloriesKcal: Number.isFinite(Number(brandPer100.kcal)) ? safeNumber(brandPer100.kcal) : per100Multiplier ? safeNumber(entry.kcal) * per100Multiplier : safeNumber(entry.kcal),
-      proteinG: Number.isFinite(Number(brandPer100.protein_g)) ? safeNumber(brandPer100.protein_g) : per100Multiplier && Number.isFinite(Number(entry.protein)) ? safeNumber(entry.protein) * per100Multiplier : entry.protein,
-      fibreG: Number.isFinite(Number(brandPer100.fibre_g)) ? safeNumber(brandPer100.fibre_g) : entry.fibrePer100g,
-      carbohydratesG: Number.isFinite(Number(brandPer100.carbohydrate_g)) ? safeNumber(brandPer100.carbohydrate_g) : per100Multiplier && Number.isFinite(Number(entry.carbs)) ? safeNumber(entry.carbs) * per100Multiplier : entry.carbs,
-      fatG: Number.isFinite(Number(brandPer100.fat_g)) ? safeNumber(brandPer100.fat_g) : per100Multiplier && Number.isFinite(Number(entry.fat)) ? safeNumber(entry.fat) * per100Multiplier : entry.fat,
-      sugarG: Number.isFinite(Number(brandPer100.sugars_g)) ? safeNumber(brandPer100.sugars_g) : per100Multiplier && Number.isFinite(Number(entry.sugar)) ? safeNumber(entry.sugar) * per100Multiplier : entry.sugar,
+      caloriesKcal: roundNutritionValue(Number.isFinite(Number(brandPer100.kcal)) ? safeNumber(brandPer100.kcal) : per100Multiplier ? safeNumber(entry.kcal) * per100Multiplier : safeNumber(entry.kcal)),
+      proteinG: Number.isFinite(Number(brandPer100.protein_g)) ? roundNutritionValue(brandPer100.protein_g) : per100Multiplier && Number.isFinite(Number(entry.protein)) ? roundNutritionValue(safeNumber(entry.protein) * per100Multiplier) : entry.protein,
+      fibreG: Number.isFinite(Number(brandPer100.fibre_g)) ? roundNutritionValue(brandPer100.fibre_g) : Number.isFinite(Number(entry.fibrePer100g)) ? roundNutritionValue(entry.fibrePer100g) : entry.fibrePer100g,
+      carbohydratesG: Number.isFinite(Number(brandPer100.carbohydrate_g)) ? roundNutritionValue(brandPer100.carbohydrate_g) : per100Multiplier && Number.isFinite(Number(entry.carbs)) ? roundNutritionValue(safeNumber(entry.carbs) * per100Multiplier) : entry.carbs,
+      fatG: Number.isFinite(Number(brandPer100.fat_g)) ? roundNutritionValue(brandPer100.fat_g) : per100Multiplier && Number.isFinite(Number(entry.fat)) ? roundNutritionValue(safeNumber(entry.fat) * per100Multiplier) : entry.fat,
+      sugarG: Number.isFinite(Number(brandPer100.sugars_g)) ? roundNutritionValue(brandPer100.sugars_g) : per100Multiplier && Number.isFinite(Number(entry.sugar)) ? roundNutritionValue(safeNumber(entry.sugar) * per100Multiplier) : entry.sugar,
     },
     keyVitaminsMinerals: Object.keys(entry.micronutrients || {}),
     fibreTypes: Array.isArray(entry.fibreTypes) ? entry.fibreTypes : [],
