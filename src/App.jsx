@@ -54,6 +54,16 @@ function DropletsIcon(props) {
   );
 }
 
+function DatabaseIcon(props) {
+  return (
+    <SvgIcon {...props}>
+      <ellipse cx="12" cy="5" rx="7" ry="3" />
+      <path d="M5 5v6c0 1.7 3.1 3 7 3s7-1.3 7-3V5" />
+      <path d="M5 11v6c0 1.7 3.1 3 7 3s7-1.3 7-3v-6" />
+    </SvgIcon>
+  );
+}
+
 function FlameIcon(props) {
   return (
     <SvgIcon {...props}>
@@ -352,6 +362,70 @@ function sortMounjaroEntries(entries) {
   return [...entries]
     .filter((entry) => entry?.date)
     .sort((a, b) => new Date(a.date) - new Date(b.date));
+}
+
+function isDateKey(value) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(String(value || ""));
+}
+
+function getDateAfter(dateString, days = 1) {
+  const parts = parseDateParts(dateString);
+  if (!parts) return "";
+  const date = new Date(Number(parts.year), Number(parts.month) - 1, Number(parts.day));
+  date.setDate(date.getDate() + days);
+  return getLocalDateKey(date);
+}
+
+function normalizeMounjaroStrengthStartDates(value, entries = [], nextStrength = "", nextStrengthStartDate = "") {
+  const dates = {};
+  const source = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+
+  Object.entries(source).forEach(([strength, date]) => {
+    if (mounjaroStrengths.includes(strength) && isDateKey(date)) dates[strength] = date;
+  });
+
+  sortMounjaroEntries(entries).forEach((entry) => {
+    const strength = mounjaroStrengths.includes(entry.strength) ? entry.strength : "";
+    if (strength && isDateKey(entry.date) && (!dates[strength] || entry.date < dates[strength])) {
+      dates[strength] = entry.date;
+    }
+  });
+
+  if (mounjaroStrengths.includes(nextStrength) && isDateKey(nextStrengthStartDate)) {
+    dates[nextStrength] = nextStrengthStartDate;
+  }
+
+  return dates;
+}
+
+function getSortedMounjaroStrengthStarts(strengthStartDates = {}) {
+  return Object.entries(strengthStartDates)
+    .filter(([strength, date]) => mounjaroStrengths.includes(strength) && isDateKey(date))
+    .map(([strength, date]) => ({ strength, date }))
+    .sort((a, b) => a.date.localeCompare(b.date));
+}
+
+function getMounjaroStrengthForDate(date, strengthStartDates = {}, fallback = "2.5 mg") {
+  const starts = getSortedMounjaroStrengthStarts(strengthStartDates).filter((item) => item.date <= date);
+  return starts.length ? starts[starts.length - 1].strength : fallback;
+}
+
+function getFridayDatesBetween(startDate, endDate) {
+  if (!isDateKey(startDate) || !isDateKey(endDate) || endDate < startDate) return [];
+  const dates = [];
+  let cursor = startDate;
+  while (cursor <= endDate) {
+    if (getDateWeekdayIndex(cursor) === 5) dates.push(cursor);
+    cursor = getDateAfter(cursor, 1);
+  }
+  return dates;
+}
+
+function getMonthDateRange(date = new Date()) {
+  return {
+    start: getLocalDateKey(new Date(date.getFullYear(), date.getMonth(), 1)),
+    end: getLocalDateKey(new Date(date.getFullYear(), date.getMonth() + 1, 0)),
+  };
 }
 
 function sortNutriEntries(entries) {
@@ -910,12 +984,45 @@ function getLocalDateKey(date = new Date()) {
   return `${year}-${month}-${day}`;
 }
 
-function getWeekArchiveLabel(date = new Date()) {
-  const end = new Date(date);
+function getWeekStartDate(date = new Date()) {
   const start = new Date(date);
   const daysSinceMonday = (date.getDay() + 6) % 7;
   start.setDate(date.getDate() - daysSinceMonday);
-  return `${formatDateNumeric(getLocalDateKey(start))} to ${formatDateNumeric(getLocalDateKey(end))}`;
+  return start;
+}
+
+function getWeekDateMap(date = new Date()) {
+  const start = getWeekStartDate(date);
+  return Object.fromEntries(weekDays.map((day, index) => {
+    const dayDate = new Date(start);
+    dayDate.setDate(start.getDate() + index);
+    return [day, getLocalDateKey(dayDate)];
+  }));
+}
+
+function getOrdinalSuffix(day) {
+  const value = Number(day);
+  if ([11, 12, 13].includes(value % 100)) return "th";
+  if (value % 10 === 1) return "st";
+  if (value % 10 === 2) return "nd";
+  if (value % 10 === 3) return "rd";
+  return "th";
+}
+
+function formatDayMonthLabel(dateString, includeWeekday = false) {
+  const parts = parseDateParts(dateString);
+  if (!parts) return String(dateString || "");
+  const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const date = new Date(`${parts.year}-${parts.month}-${parts.day}T00:00:00Z`);
+  const weekday = dateWeekDays[date.getUTCDay()];
+  const day = Number(parts.day);
+  const label = `${day}${getOrdinalSuffix(day)} ${monthNames[Number(parts.month) - 1] || parts.month}`;
+  return includeWeekday ? `${weekday} ${label}` : label;
+}
+
+function getWeekArchiveLabel(date = new Date()) {
+  const weekDates = getWeekDateMap(date);
+  return `${formatDayMonthLabel(weekDates.Monday, true)} to ${formatDayMonthLabel(weekDates.Sunday, true)}`;
 }
 
 function calculateNutriAnalysis(entries, references = []) {
@@ -1309,6 +1416,31 @@ async function writeDatabaseRecord(key, value) {
   return true;
 }
 
+async function readSqlTables() {
+  const response = await fetch("/api/sql/tables");
+  if (!response.ok) throw new Error("SQLite table read failed.");
+  return response.json();
+}
+
+async function readSqlTable(tableName) {
+  const response = await fetch(`/api/sql/tables/${encodeURIComponent(tableName)}`);
+  if (!response.ok) throw new Error("SQLite row read failed.");
+  return response.json();
+}
+
+async function updateSqlTableRow(tableName, primaryKey, values) {
+  const response = await fetch(`/api/sql/tables/${encodeURIComponent(tableName)}/row`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ primaryKey, values }),
+  });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}));
+    throw new Error(payload.error || "SQLite row update failed.");
+  }
+  return response.json();
+}
+
 function normalizeWeightGoals(value, fallback = defaultWeightGoals) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return { ...fallback };
 
@@ -1366,6 +1498,7 @@ function createFallbackAppState() {
     nutriAutoArchivePausedLabel: "",
     mounjaroNextStrength: "2.5 mg",
     mounjaroNextStrengthStartDate: "",
+    mounjaroStrengthStartDates: {},
   };
 }
 
@@ -1381,6 +1514,21 @@ function normalizeAppState(state) {
         ethnicity: state.bmiProfile.ethnicity || fallback.bmiProfile.ethnicity,
       }
     : fallback.bmiProfile;
+  const mounjaroEntries = sortMounjaroEntries((Array.isArray(state.mounjaroEntries) ? state.mounjaroEntries : fallback.mounjaroEntries).map((entry) => ({
+    id: entry.id || createId(),
+    date: entry.date,
+    strength: mounjaroStrengths.includes(entry.strength) ? entry.strength : entry.strength || "2.5 mg",
+    nextStrength: mounjaroStrengths.includes(entry.nextStrength) ? entry.nextStrength : entry.nextStrength || "",
+    notes: entry.notes || "",
+  })));
+  const mounjaroNextStrength = mounjaroStrengths.includes(state.mounjaroNextStrength) ? state.mounjaroNextStrength : fallback.mounjaroNextStrength;
+  const mounjaroNextStrengthStartDate = isDateKey(state.mounjaroNextStrengthStartDate) ? state.mounjaroNextStrengthStartDate : "";
+  const mounjaroStrengthStartDates = normalizeMounjaroStrengthStartDates(
+    state.mounjaroStrengthStartDates,
+    mounjaroEntries,
+    mounjaroNextStrength,
+    mounjaroNextStrengthStartDate
+  );
 
   return {
     meals: Array.isArray(state.meals) ? state.meals : fallback.meals,
@@ -1410,19 +1558,13 @@ function normalizeAppState(state) {
       intensity: entry.intensity || "Moderate",
       notes: entry.notes || "",
     }))),
-    mounjaroEntries: sortMounjaroEntries((Array.isArray(state.mounjaroEntries) ? state.mounjaroEntries : fallback.mounjaroEntries).map((entry) => ({
-      id: entry.id || createId(),
-      date: entry.date,
-      strength: mounjaroStrengths.includes(entry.strength) ? entry.strength : entry.strength || "2.5 mg",
-      nextStrength: mounjaroStrengths.includes(entry.nextStrength) ? entry.nextStrength : entry.nextStrength || "",
-      notes: entry.notes || "",
-    }))),
-    nutriEntries: sortNutriEntries((Array.isArray(state.nutriEntries) ? state.nutriEntries : fallback.nutriEntries).map((entry) => normalizeNutriEntry(entry))),
+    mounjaroEntries,
+    nutriEntries: dedupeNutriEntries(Array.isArray(state.nutriEntries) ? state.nutriEntries : fallback.nutriEntries),
     nutriWeekArchives: sortNutriWeekArchives((Array.isArray(state.nutriWeekArchives) ? state.nutriWeekArchives : fallback.nutriWeekArchives).map((archive) => ({
       id: archive.id || createId(),
       label: archive.label || "Saved week",
       savedAt: archive.savedAt || new Date().toISOString(),
-      entries: sortNutriEntries((Array.isArray(archive.entries) ? archive.entries : []).map((entry) => normalizeNutriEntry(entry))),
+      entries: dedupeNutriEntries(Array.isArray(archive.entries) ? archive.entries : []),
     }))),
     nutriReferences: sortNutriReferences(Array.isArray(state.nutriReferences) ? state.nutriReferences : fallback.nutriReferences),
     foodDatabaseFavorites: state.foodDatabaseFavorites && typeof state.foodDatabaseFavorites === "object" && !Array.isArray(state.foodDatabaseFavorites) ? state.foodDatabaseFavorites : fallback.foodDatabaseFavorites,
@@ -1430,8 +1572,9 @@ function normalizeAppState(state) {
     foodDatabaseNutrition: state.foodDatabaseNutrition && typeof state.foodDatabaseNutrition === "object" && !Array.isArray(state.foodDatabaseNutrition) ? state.foodDatabaseNutrition : fallback.foodDatabaseNutrition,
     foodDatabaseDeleted: state.foodDatabaseDeleted && typeof state.foodDatabaseDeleted === "object" && !Array.isArray(state.foodDatabaseDeleted) ? state.foodDatabaseDeleted : fallback.foodDatabaseDeleted,
     nutriAutoArchivePausedLabel: String(state.nutriAutoArchivePausedLabel || ""),
-    mounjaroNextStrength: mounjaroStrengths.includes(state.mounjaroNextStrength) ? state.mounjaroNextStrength : fallback.mounjaroNextStrength,
-    mounjaroNextStrengthStartDate: /^\d{4}-\d{2}-\d{2}$/.test(String(state.mounjaroNextStrengthStartDate || "")) ? state.mounjaroNextStrengthStartDate : "",
+    mounjaroNextStrength,
+    mounjaroNextStrengthStartDate,
+    mounjaroStrengthStartDates,
   };
 }
 
@@ -1476,9 +1619,45 @@ function getNutriMealGroupKey(entry) {
   ].join("|");
 }
 
+function getNutriEntryIdentityKey(entry) {
+  return [
+    normalizeImportDay(entry?.day) || entry?.day || "",
+    String(entry?.meal || "").trim().toLowerCase(),
+    String(entry?.recipeName || "").trim().toLowerCase(),
+    String(entry?.tag || "").trim().toLowerCase(),
+    String(entry?.ingredient || "").trim().toLowerCase(),
+    String(entry?.unit || "g").trim().toLowerCase(),
+  ].join("|");
+}
+
+function getNutriEntryDuplicateKey(entry) {
+  return [
+    normalizeImportDay(entry?.day) || entry?.day || "",
+    String(entry?.meal || "").trim().toLowerCase(),
+    String(entry?.ingredient || "").trim().toLowerCase(),
+    String(entry?.unit || "g").trim().toLowerCase(),
+    safeNumber(entry?.grams),
+    safeNumber(entry?.kcal),
+  ].join("|");
+}
+
+function dedupeNutriEntries(entries) {
+  const byKey = new Map();
+  (Array.isArray(entries) ? entries : []).forEach((entry) => {
+    const normalized = normalizeNutriEntry(entry);
+    if (!normalized.ingredient) return;
+    byKey.set(getNutriEntryIdentityKey(normalized), normalized);
+  });
+  const byDuplicateKey = new Map();
+  [...byKey.values()].forEach((entry) => {
+    byDuplicateKey.set(getNutriEntryDuplicateKey(entry), entry);
+  });
+  return sortNutriEntries([...byDuplicateKey.values()]);
+}
+
 function mergeNutriEntriesForImport(existingEntries, incomingEntries) {
   const incomingGroupKeys = new Set(incomingEntries.map(getNutriMealGroupKey));
-  return sortNutriEntries([
+  return dedupeNutriEntries([
     ...existingEntries.filter((entry) => !incomingGroupKeys.has(getNutriMealGroupKey(entry))),
     ...incomingEntries,
   ]);
@@ -2571,31 +2750,37 @@ function ExercisePage({ entries, exerciseForm, onExerciseFormChange, onAddExerci
   );
 }
 
-function MounjaroPage({ entries, nextStrength, nextStrengthStartDate, onSelectNextStrength, onSelectNextStrengthStartDate, onConfirmInjectionDate, onDeleteEntry, onBack }) {
+function MounjaroPage({ entries, nextStrength, strengthStartDates, onSelectNextStrength, onSetStrengthStartDate, onConfirmInjectionDate, onDeleteEntry, onBack }) {
   const [editingStartDateFor, setEditingStartDateFor] = useState("");
   const sortedEntries = sortMounjaroEntries(entries);
   const latestEntry = sortedEntries.length ? sortedEntries[sortedEntries.length - 1] : null;
   const injectionDates = new Set(sortedEntries.map((entry) => entry.date));
   const todayKey = getLocalDateKey(new Date());
-  const currentStrength = latestEntry?.strength || "2.5 mg";
+  const strengthStarts = getSortedMounjaroStrengthStarts(strengthStartDates);
+  const currentStrength = getMounjaroStrengthForDate(todayKey, strengthStartDates, latestEntry?.strength || "2.5 mg");
+  const treatmentStartKey = strengthStarts[0]?.date || sortedEntries[0]?.date || "2026-05-01";
   const injectionScheduleDates = (() => {
     const today = new Date();
-    const treatmentStart = new Date("2026-05-01T00:00:00");
-    const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
-    const monthEnd = new Date(today.getFullYear(), today.getMonth() + 1, 0);
-    const start = monthStart < treatmentStart ? treatmentStart : monthStart;
-    const daysToShow = Math.max(0, Math.floor((monthEnd - start) / 86400000) + 1);
-    return Array.from({ length: daysToShow }, (_, index) => {
-      const date = new Date(start);
-      date.setDate(start.getDate() + index);
-      return getLocalDateKey(date);
-    }).filter((date) => getDateWeekdayIndex(date) === 5);
+    const { start: monthStart, end: monthEnd } = getMonthDateRange(today);
+    const start = monthStart < treatmentStartKey ? treatmentStartKey : monthStart;
+    return getFridayDatesBetween(start, monthEnd);
   })();
-  const nextInjectionDate = injectionScheduleDates.find((date) => date >= todayKey && !injectionDates.has(date))
-    || injectionScheduleDates.find((date) => !injectionDates.has(date))
-    || injectionScheduleDates[injectionScheduleDates.length - 1]
-    || "";
-  const strengthForDate = (date) => nextStrengthStartDate && date >= nextStrengthStartDate ? nextStrength : currentStrength;
+  const strengthForDate = (date) => getMounjaroStrengthForDate(date, strengthStartDates, currentStrength);
+  const injectionByDate = new Map(sortedEntries.map((entry) => [entry.date, entry]));
+  const dosePeriods = strengthStarts.map((start, index) => {
+    const nextStart = strengthStarts[index + 1];
+    return {
+      ...start,
+      endDate: nextStart ? getDateAfter(nextStart.date, -1) : "",
+    };
+  });
+  const completedDosePeriods = dosePeriods
+    .filter((period) => period.endDate && period.endDate < todayKey)
+    .map((period) => ({
+      ...period,
+      dates: getFridayDatesBetween(period.date, period.endDate).map((date) => ({ date, entry: injectionByDate.get(date) })),
+    }))
+    .reverse();
   const historyGroups = [...sortedEntries].reverse().reduce((groups, entry) => {
     const key = String(entry.date || "").slice(0, 7);
     const existing = groups.find((group) => group.key === key);
@@ -2619,8 +2804,8 @@ function MounjaroPage({ entries, nextStrength, nextStrengthStartDate, onSelectNe
 
       <div className="grid gap-4 md:grid-cols-3">
         <StatCard icon={SparklesIcon} label="Latest injection" value={latestEntry ? formatDateNumeric(latestEntry.date) : "--"} sub={latestEntry ? latestEntry.strength : "No injections logged"} accent="bg-emerald-100 text-emerald-700" />
-        <StatCard icon={TargetIcon} label="Current strength" value={latestEntry?.strength || "--"} sub="Strength started" accent="bg-sky-100 text-sky-700" />
-        <StatCard icon={FlameIcon} label="Next strength" value={latestEntry?.nextStrength || "--"} sub="Planned next step" accent="bg-amber-100 text-amber-700" />
+        <StatCard icon={TargetIcon} label="Current strength" value={currentStrength || "--"} sub="Strength active today" accent="bg-sky-100 text-sky-700" />
+        <StatCard icon={FlameIcon} label="Selected strength" value={nextStrength || "--"} sub="Planned next step" accent="bg-amber-100 text-amber-700" />
       </div>
 
       <div className="grid gap-6 lg:grid-cols-[0.9fr_1.4fr]">
@@ -2631,6 +2816,7 @@ function MounjaroPage({ entries, nextStrength, nextStrengthStartDate, onSelectNe
             {mounjaroStrengths.map((strength) => {
               const selected = nextStrength === strength;
               const isEditingDate = editingStartDateFor === strength;
+              const startDate = strengthStartDates[strength] || "";
               return (
                 <div
                   key={strength}
@@ -2643,10 +2829,10 @@ function MounjaroPage({ entries, nextStrength, nextStrengthStartDate, onSelectNe
                   {isEditingDate ? (
                     <input
                       type="date"
-                      value={selected ? nextStrengthStartDate : ""}
+                      value={startDate}
                       onChange={(event) => {
                         onSelectNextStrength(strength);
-                        onSelectNextStrengthStartDate(event.target.value);
+                        onSetStrengthStartDate(strength, event.target.value);
                       }}
                       onBlur={() => setEditingStartDateFor("")}
                       autoFocus
@@ -2662,7 +2848,7 @@ function MounjaroPage({ entries, nextStrength, nextStrengthStartDate, onSelectNe
                       }}
                       className="rounded-xl bg-white px-3 py-2 text-xs font-semibold text-slate-500 ring-1 ring-slate-100 transition hover:text-emerald-700 hover:ring-emerald-200"
                     >
-                      {selected && nextStrengthStartDate ? formatDateNumeric(nextStrengthStartDate) : "Set date"}
+                      {startDate ? formatDateNumeric(startDate) : "Set date"}
                     </button>
                   )}
                 </div>
@@ -2701,6 +2887,28 @@ function MounjaroPage({ entries, nextStrength, nextStrengthStartDate, onSelectNe
           </div>
 
           <div className="mt-6 grid gap-3">
+            {completedDosePeriods.map((period, index) => {
+              const confirmedCount = period.dates.filter((item) => item.entry).length;
+              return (
+                <details key={`${period.strength}-${period.date}`} open={index === 0} className="rounded-2xl bg-emerald-50 p-4 ring-1 ring-emerald-100">
+                  <summary className="cursor-pointer font-semibold text-emerald-950">
+                    {period.strength} / {formatDateNumeric(period.date)} to {formatDateNumeric(period.endDate)} / {confirmedCount} confirmed
+                  </summary>
+                  <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+                    {period.dates.map(({ date, entry }) => (
+                      <div key={date} className={`rounded-2xl p-4 text-center ring-1 ${entry ? "bg-white text-emerald-950 ring-emerald-200" : "bg-white/70 text-slate-600 ring-slate-100"}`}>
+                        <p className="text-xs font-semibold text-slate-500">Friday</p>
+                        <p className="mt-1 text-sm font-bold">{formatDateNumeric(date)}</p>
+                        <p className="mt-1 text-xs font-semibold text-slate-500">{period.strength}</p>
+                        <div className={`mx-auto mt-3 inline-grid h-9 w-9 place-items-center rounded-full border text-lg font-black ${entry ? "border-emerald-500 bg-emerald-600 text-white" : "border-slate-200 bg-slate-50 text-transparent"}`}>
+                          {entry ? "✓" : ""}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </details>
+              );
+            })}
             {historyGroups.map((group, index) => (
               <details key={group.key} open={index === 0} className="rounded-2xl bg-slate-50 p-4 ring-1 ring-slate-100">
                 <summary className="cursor-pointer font-semibold text-slate-950">
@@ -2776,6 +2984,7 @@ function NutriTrackPage({
   const analysis = calculateNutriAnalysis(entriesForDay, nutriReferences);
   const dayTotals = analysis.totals;
   const dayProfile = calculateNutriDayProfile(analysis);
+  const weekDateMap = getWeekDateMap(new Date());
   const checkClassNames = {
     met: "bg-emerald-50 text-emerald-900 ring-emerald-100",
     close: "bg-amber-50 text-amber-900 ring-amber-100",
@@ -2813,9 +3022,11 @@ function NutriTrackPage({
       <div className="grid gap-2 md:grid-cols-7">
         {weekDays.map((day) => {
           const count = nutriEntries.filter((entry) => entry.day === day).length;
+          const dayDateLabel = formatDayMonthLabel(weekDateMap[day]);
           return (
             <button key={day} type="button" onClick={() => onSelectDay(day)} className={`rounded-2xl px-3 py-3 text-sm font-semibold transition ${selectedDay === day ? "bg-slate-950 text-white shadow-lg" : "bg-white/80 text-slate-700 ring-1 ring-slate-100 hover:bg-slate-50"}`}>
               <span className="block">{day.slice(0, 3)}</span>
+              <span className="mt-1 block text-xs opacity-80">{dayDateLabel}</span>
               <span className="mt-1 block text-xs opacity-70">{count} item{count === 1 ? "" : "s"}</span>
             </button>
           );
@@ -2824,7 +3035,7 @@ function NutriTrackPage({
 
       <CollapsiblePanel
         title={selectedDay}
-        subtitle="Imported ingredients eaten."
+        subtitle={`${formatDayMonthLabel(weekDateMap[selectedDay], true)} / imported ingredients eaten.`}
         meta={`${dayTotals.kcal} kcal / ${dayTotals.fibre.toFixed(1)}g fibre`}
       >
           <div className="flex justify-end">
@@ -3369,7 +3580,9 @@ function FoodDatabasePage({ foods, selectedDay, customCategories, onAddFoodToNut
   const [newCategory, setNewCategory] = useState("");
   const [draggedFood, setDraggedFood] = useState("");
   const [selectedFoods, setSelectedFoods] = useState([]);
+  const [foodTargetDays, setFoodTargetDays] = useState({});
   const categories = ["All", ...defaultFoodCategories, ...customCategories.filter((item) => !defaultFoodCategories.includes(item))];
+  const getFoodTargetDay = (food) => foodTargetDays[food.name] || selectedDay;
   const filteredFoods = foods.filter((food) => {
     const matchesCategory = category === "All" || food.category === category;
     const matchesSearch = `${food.name} ${food.barcode} ${food.brand} ${food.productName} ${food.category} ${food.gutHealth} ${food.nutritionSource}`.toLowerCase().includes(search.trim().toLowerCase());
@@ -3588,11 +3801,25 @@ function FoodDatabasePage({ foods, selectedDay, customCategories, onAddFoodToNut
                       </div>
                       <div className="grid gap-2">
                         <button type="button" onClick={(event) => { event.preventDefault(); onToggleFavorite(food.name); }} className="rounded-xl bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800 ring-1 ring-amber-100">{food.favorite ? "Saved" : "Favourite"}</button>
-                        <button type="button" onClick={(event) => { event.preventDefault(); onAddFoodToNutriTrack(food); }} className="rounded-xl bg-slate-950 px-3 py-2 text-xs font-semibold text-white shadow-lg transition hover:bg-slate-800">Add to NutriTrack</button>
+                        <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
+                          <select
+                            value={getFoodTargetDay(food)}
+                            onChange={(event) => {
+                              event.preventDefault();
+                              setFoodTargetDays((prev) => ({ ...prev, [food.name]: event.target.value }));
+                            }}
+                            onClick={(event) => event.stopPropagation()}
+                            className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-900 shadow-sm focus:border-lime-300 focus:outline-none"
+                            aria-label={`Day to add ${food.name}`}
+                          >
+                            {weekDays.map((day) => <option key={day} value={day}>{day}</option>)}
+                          </select>
+                          <button type="button" onClick={(event) => { event.preventDefault(); onAddFoodToNutriTrack(food, getFoodTargetDay(food)); }} className="rounded-xl bg-slate-950 px-3 py-2 text-xs font-semibold text-white shadow-lg transition hover:bg-slate-800">Add</button>
+                        </div>
                         <button type="button" onClick={(event) => { event.preventDefault(); onUseFoodInRecipe(food); }} className="rounded-xl bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-900 ring-1 ring-emerald-100">Use in recipe</button>
                         <button type="button" onClick={(event) => handleDeleteFood(event, food)} className="rounded-xl bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700 ring-1 ring-rose-100 transition hover:bg-rose-100">Delete food</button>
                       </div>
-                      <p className="text-[10px] font-semibold text-slate-500">Adds to {selectedDay} using the common portion.</p>
+                      <p className="text-[10px] font-semibold text-slate-500">Adds to {getFoodTargetDay(food)} using the common portion.</p>
                     </div>
                   </details>
                 );
@@ -3607,6 +3834,177 @@ function FoodDatabasePage({ foods, selectedDay, customCategories, onAddFoodToNut
         ))}
 
         {!filteredFoods.length && <div className="rounded-3xl bg-white/80 p-6 text-sm text-slate-600 shadow-lg shadow-slate-200/60 ring-1 ring-slate-100">No foods match that search.</div>}
+      </div>
+    </div>
+  );
+}
+
+function SqlDatabasePage({ onBack, onDatabaseChanged }) {
+  const [tables, setTables] = useState([]);
+  const [selectedTable, setSelectedTable] = useState("");
+  const [columns, setColumns] = useState([]);
+  const [rows, setRows] = useState([]);
+  const [selectedRowIndex, setSelectedRowIndex] = useState(0);
+  const [editorText, setEditorText] = useState("");
+  const [status, setStatus] = useState("Loading database tables...");
+
+  const selectedRow = rows[selectedRowIndex] || null;
+  const primaryColumns = columns.filter((column) => column.pk).sort((a, b) => a.pk - b.pk);
+
+  useEffect(() => {
+    let active = true;
+    readSqlTables()
+      .then((payload) => {
+        if (!active) return;
+        const nextTables = payload.tables || [];
+        setTables(nextTables);
+        setSelectedTable(nextTables[0]?.name || "");
+        setStatus(nextTables.length ? "Tables loaded." : "No tables found.");
+      })
+      .catch((error) => {
+        if (active) setStatus(error instanceof Error ? error.message : "Could not load SQL tables.");
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!selectedTable) return undefined;
+    let active = true;
+    setStatus(`Loading ${selectedTable}...`);
+    readSqlTable(selectedTable)
+      .then((payload) => {
+        if (!active) return;
+        setColumns(payload.columns || []);
+        setRows(payload.rows || []);
+        setSelectedRowIndex(0);
+        setStatus(`${selectedTable} loaded.`);
+      })
+      .catch((error) => {
+        if (active) setStatus(error instanceof Error ? error.message : "Could not load table rows.");
+      });
+    return () => {
+      active = false;
+    };
+  }, [selectedTable]);
+
+  useEffect(() => {
+    if (!selectedRow) {
+      setEditorText("");
+      return;
+    }
+    const value = selectedRow.value;
+    if (typeof value === "string") {
+      try {
+        setEditorText(JSON.stringify(JSON.parse(value), null, 2));
+      } catch {
+        setEditorText(value);
+      }
+      return;
+    }
+    setEditorText(JSON.stringify(selectedRow, null, 2));
+  }, [selectedRow]);
+
+  const saveSelectedRow = async () => {
+    if (!selectedRow || !primaryColumns.length) return;
+    try {
+      const primaryKey = Object.fromEntries(primaryColumns.map((column) => [column.name, selectedRow[column.name]]));
+      const values = selectedTable === "app_state" && Object.prototype.hasOwnProperty.call(selectedRow, "value")
+        ? {
+            value: JSON.stringify(JSON.parse(editorText)),
+            updated_at: new Date().toISOString(),
+          }
+        : JSON.parse(editorText);
+      await updateSqlTableRow(selectedTable, primaryKey, values);
+      const payload = await readSqlTable(selectedTable);
+      setColumns(payload.columns || []);
+      setRows(payload.rows || []);
+      setStatus("Saved SQL row.");
+      onDatabaseChanged?.();
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Could not save SQL row.");
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="grid gap-6 xl:grid-cols-[1.3fr_0.7fr]">
+        <div className="rounded-3xl bg-white/80 p-6 shadow-lg shadow-slate-200/60 ring-1 ring-slate-100">
+          <p className="text-sm font-semibold uppercase tracking-[0.3em] text-slate-500">SQLite</p>
+          <h2 className="mt-4 text-3xl font-bold text-slate-950">View and edit the local database.</h2>
+          <p className="mt-3 text-sm text-slate-500">Direct edits write to SQLite. The app state is stored as JSON in the app_state table.</p>
+        </div>
+        <div className="flex items-end justify-end">
+          <button type="button" onClick={onBack} className="rounded-2xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white shadow-lg transition hover:bg-slate-800">Back to dashboard</button>
+        </div>
+      </div>
+
+      <div className="grid gap-6 lg:grid-cols-[0.35fr_1fr]">
+        <div className="rounded-3xl bg-white/80 p-5 shadow-lg shadow-slate-200/60 ring-1 ring-slate-100">
+          <h3 className="text-lg font-bold text-slate-950">Tables</h3>
+          <div className="mt-4 grid gap-2">
+            {tables.map((table) => (
+              <button
+                key={table.name}
+                type="button"
+                onClick={() => setSelectedTable(table.name)}
+                className={`rounded-2xl px-4 py-3 text-left text-sm font-semibold transition ${selectedTable === table.name ? "bg-slate-950 text-white" : "bg-slate-50 text-slate-700 hover:bg-slate-100"}`}
+              >
+                {table.name}
+              </button>
+            ))}
+          </div>
+          <p className="mt-4 rounded-2xl bg-slate-50 p-3 text-xs font-semibold text-slate-600">{status}</p>
+        </div>
+
+        <div className="space-y-6">
+          <div className="overflow-x-auto rounded-3xl bg-white/80 p-5 shadow-lg shadow-slate-200/60 ring-1 ring-slate-100">
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <h3 className="text-lg font-bold text-slate-950">{selectedTable || "No table selected"}</h3>
+              <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">{rows.length} row{rows.length === 1 ? "" : "s"}</span>
+            </div>
+            <table className="min-w-full text-left text-xs text-slate-700">
+              <thead>
+                <tr>
+                  <th className="px-3 py-2 font-semibold text-slate-500">Row</th>
+                  {columns.map((column) => <th key={column.name} className="px-3 py-2 font-semibold text-slate-500">{column.name}</th>)}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {rows.map((row, index) => (
+                  <tr key={index} className={selectedRowIndex === index ? "bg-sky-50" : ""}>
+                    <td className="px-3 py-2">
+                      <button type="button" onClick={() => setSelectedRowIndex(index)} className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">Edit</button>
+                    </td>
+                    {columns.map((column) => {
+                      const text = String(row[column.name] ?? "");
+                      return <td key={column.name} className="max-w-80 truncate px-3 py-2" title={text}>{text}</td>;
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {selectedRow && (
+            <div className="rounded-3xl bg-white/80 p-5 shadow-lg shadow-slate-200/60 ring-1 ring-slate-100">
+              <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <h3 className="text-lg font-bold text-slate-950">Edit selected row</h3>
+                  <p className="text-sm text-slate-500">For app_state, edit the JSON below and save it back to SQLite.</p>
+                </div>
+                <button type="button" onClick={saveSelectedRow} className="rounded-2xl bg-slate-950 px-4 py-2 text-sm font-semibold text-white shadow-lg transition hover:bg-slate-800">Save SQL row</button>
+              </div>
+              <textarea
+                value={editorText}
+                onChange={(event) => setEditorText(event.target.value)}
+                spellCheck={false}
+                className="h-[32rem] w-full rounded-2xl border border-slate-200 bg-slate-950 p-4 font-mono text-xs text-slate-50 shadow-inner outline-none focus:border-sky-300"
+              />
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -3636,6 +4034,7 @@ export default function App() {
   const [nutriAutoArchivePausedLabel, setNutriAutoArchivePausedLabel] = useState(() => fallbackAppState.nutriAutoArchivePausedLabel);
   const [mounjaroNextStrength, setMounjaroNextStrength] = useState(() => fallbackAppState.mounjaroNextStrength);
   const [mounjaroNextStrengthStartDate, setMounjaroNextStrengthStartDate] = useState(() => fallbackAppState.mounjaroNextStrengthStartDate);
+  const [mounjaroStrengthStartDates, setMounjaroStrengthStartDates] = useState(() => fallbackAppState.mounjaroStrengthStartDates);
   const [selectedNutriDay, setSelectedNutriDay] = useState("Monday");
   const [form, setForm] = useState({ meal: "Snack", items: "", kcal: "", protein: "", fibre: "" });
   const [weightForm, setWeightForm] = useState({ date: "", weight: "" });
@@ -3678,6 +4077,7 @@ export default function App() {
           setNutriAutoArchivePausedLabel(nextState.nutriAutoArchivePausedLabel);
           setMounjaroNextStrength(nextState.mounjaroNextStrength);
           setMounjaroNextStrengthStartDate(nextState.mounjaroNextStrengthStartDate);
+          setMounjaroStrengthStartDates(nextState.mounjaroStrengthStartDates);
           setWeightGoals(nextState.weightGoals);
           setGoalForm(nextState.weightGoals);
           setBmiProfile(nextState.bmiProfile);
@@ -3724,6 +4124,7 @@ export default function App() {
       nutriAutoArchivePausedLabel,
       mounjaroNextStrength,
       mounjaroNextStrengthStartDate,
+      mounjaroStrengthStartDates,
       weightGoals,
       bmiProfile,
       savedAt: new Date().toISOString(),
@@ -3747,7 +4148,7 @@ export default function App() {
     return () => {
       isActive = false;
     };
-  }, [isDatabaseReady, isDatabaseAvailable, meals, habits, weights, bloodPressureEntries, exerciseEntries, mounjaroEntries, nutriEntries, nutriWeekArchives, nutriReferences, foodDatabaseFavorites, foodDatabaseCategories, foodDatabaseNutrition, foodDatabaseDeleted, nutriAutoArchivePausedLabel, mounjaroNextStrength, mounjaroNextStrengthStartDate, weightGoals, bmiProfile]);
+  }, [isDatabaseReady, isDatabaseAvailable, meals, habits, weights, bloodPressureEntries, exerciseEntries, mounjaroEntries, nutriEntries, nutriWeekArchives, nutriReferences, foodDatabaseFavorites, foodDatabaseCategories, foodDatabaseNutrition, foodDatabaseDeleted, nutriAutoArchivePausedLabel, mounjaroNextStrength, mounjaroNextStrengthStartDate, mounjaroStrengthStartDates, weightGoals, bmiProfile]);
 
   const dashboardDay = getTodayWeekDay();
   const totals = useMemo(() => calculateNutriDashboardTotals(nutriEntries, nutriReferences, dashboardDay), [nutriEntries, nutriReferences, dashboardDay]);
@@ -3755,7 +4156,10 @@ export default function App() {
   const sortedBloodPressureEntries = useMemo(() => sortBloodPressureEntries(bloodPressureEntries), [bloodPressureEntries]);
   const sortedExerciseEntries = useMemo(() => sortExerciseEntries(exerciseEntries), [exerciseEntries]);
   const sortedMounjaroEntries = useMemo(() => sortMounjaroEntries(mounjaroEntries), [mounjaroEntries]);
-  const mounjaroDoseMarkers = useMemo(() => getMounjaroDoseStartMarkers(sortedMounjaroEntries), [sortedMounjaroEntries]);
+  const mounjaroDoseMarkers = useMemo(() => {
+    const startMarkers = getSortedMounjaroStrengthStarts(mounjaroStrengthStartDates);
+    return startMarkers.length ? startMarkers.map(({ date, strength }) => ({ date, strength })) : getMounjaroDoseStartMarkers(sortedMounjaroEntries);
+  }, [mounjaroStrengthStartDates, sortedMounjaroEntries]);
   const latestWeightEntry = getLatestWeightEntry(sortedWeights);
   const latestBloodPressureEntry = getLatestBloodPressureEntry(sortedBloodPressureEntries);
   const bloodPressureAverage = useMemo(() => calculateBloodPressureAverage(sortedBloodPressureEntries), [sortedBloodPressureEntries]);
@@ -3955,10 +4359,26 @@ export default function App() {
     setExerciseForm({ date: "", activityType: "Walking", duration: "", distance: "", steps: "", calories: "", intensity: "Light to moderate", notes: "" });
   };
   const handleDeleteExercise = (id) => setExerciseEntries((prev) => prev.filter((entry) => entry.id !== id));
+  const handleSelectMounjaroStrength = (strength) => {
+    if (!mounjaroStrengths.includes(strength)) return;
+    setMounjaroNextStrength(strength);
+    setMounjaroNextStrengthStartDate(mounjaroStrengthStartDates[strength] || "");
+  };
+  const handleSetMounjaroStrengthStartDate = (strength, date) => {
+    if (!mounjaroStrengths.includes(strength)) return;
+    setMounjaroNextStrength(strength);
+    setMounjaroNextStrengthStartDate(isDateKey(date) ? date : "");
+    setMounjaroStrengthStartDates((prev) => {
+      const next = { ...prev };
+      if (isDateKey(date)) next[strength] = date;
+      else delete next[strength];
+      return next;
+    });
+  };
   const handleConfirmMounjaroDate = (date, plannedStrength) => {
     const sorted = sortMounjaroEntries(mounjaroEntries);
     const previousEntry = [...sorted].reverse().find((entry) => entry.date <= date);
-    const strength = plannedStrength || previousEntry?.strength || mounjaroNextStrength || "2.5 mg";
+    const strength = plannedStrength || getMounjaroStrengthForDate(date, mounjaroStrengthStartDates, previousEntry?.strength || mounjaroNextStrength || "2.5 mg");
     setMounjaroEntries((prev) => sortMounjaroEntries([
       ...prev.filter((entry) => entry.date !== date),
       {
@@ -4036,6 +4456,7 @@ export default function App() {
     setNutriAutoArchivePausedLabel(nextState.nutriAutoArchivePausedLabel);
     setMounjaroNextStrength(nextState.mounjaroNextStrength);
     setMounjaroNextStrengthStartDate(nextState.mounjaroNextStrengthStartDate);
+    setMounjaroStrengthStartDates(nextState.mounjaroStrengthStartDates);
     setWeightGoals(nextState.weightGoals);
     setGoalForm(nextState.weightGoals);
     setBmiProfile(nextState.bmiProfile);
@@ -4159,11 +4580,12 @@ export default function App() {
     });
     setNutriImportStatus(`Deleted ${name} from the food database.`);
   };
-  const handleAddFoodToNutriTrack = (food) => {
+  const handleAddFoodToNutriTrack = (food, day = selectedNutriDay) => {
     const grams = safeNumber(food.portion, 100);
+    const targetDay = weekDays.includes(day) ? day : selectedNutriDay;
     setNutriEntries((prev) => sortNutriEntries([...prev, {
       id: createId(),
-      day: selectedNutriDay,
+      day: targetDay,
       meal: "Food database",
       recipeName: "",
       tag: "Food",
@@ -4174,8 +4596,10 @@ export default function App() {
       ...getProductMetadata(food),
       fibrePer100g: food.fibre,
     }]));
+    setSelectedNutriDay(targetDay);
+    setNutriForm((prev) => ({ ...prev, day: targetDay }));
     setCurrentPage("nutriTrack");
-    setNutriImportStatus(`Added ${food.name} to ${selectedNutriDay}.`);
+    setNutriImportStatus(`Added ${food.name} to ${targetDay}.`);
   };
   const handleUseFoodInRecipe = (food) => {
     const snippet = {
@@ -4261,38 +4685,50 @@ export default function App() {
   };
   const openWeightPage = () => setCurrentPage("weight");
   const openBloodPressurePage = () => setCurrentPage("bloodPressure");
-  const openExercisePage = () => setCurrentPage("exercise");
   const openMounjaroPage = () => setCurrentPage("mounjaro");
   const openNutriTrackPage = () => setCurrentPage("nutriTrack");
   const openRecipesPage = () => setCurrentPage("recipes");
   const openFoodDatabasePage = () => setCurrentPage("foodDatabase");
+  const openSqlPage = () => setCurrentPage("sql");
   const openDashboardPage = () => setCurrentPage("dashboard");
   const pageTitle = {
     dashboard: "Weight & food dashboard",
     weight: "Weight tracker",
     bloodPressure: "Blood pressure tracker",
-    exercise: "Exercise tracker",
     mounjaro: "Mounjaro tracker",
     nutriTrack: "NutriTrack",
     recipes: "Recipe cards",
     foodDatabase: "Food database",
+    sql: "SQL database",
   }[currentPage];
   const pageSubtitle = {
     dashboard: "Track calories, protein, fibre, hydration, supplements and weekly weight changes in one clean view.",
     weight: "Track trends, set goals, and focus on steady progress.",
     bloodPressure: "Record blood pressure readings, pulse, notes, and trends in one dedicated view.",
-    exercise: "Track walking, strength, cardio, steps, intensity and activity notes.",
     mounjaro: "Track injection days, strengths started, and next planned strengths.",
     nutriTrack: "Import ingredients by day and review fibre breakdowns with NutriAnalysis.",
     recipes: "Browse recipe cards generated from uploaded NutriTrack meals.",
     foodDatabase: "Search saved foods and reuse common portions in NutriTrack.",
+    sql: "View and edit the local SQLite app database directly.",
   }[currentPage];
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-sky-50 to-indigo-50 p-4 text-slate-950 md:p-8">
       <ConfettiBurst pieces={confettiPieces} />
       <div className="mx-auto max-w-7xl space-y-6">
-        <div className="overflow-hidden rounded-[2rem] bg-slate-950 p-6 text-white shadow-2xl shadow-slate-300/50 md:p-8">
+        <div className="relative overflow-hidden rounded-[2rem] bg-slate-950 p-6 text-white shadow-2xl shadow-slate-300/50 md:p-8">
+          <span
+            role="status"
+            title={storageStatus}
+            aria-label={storageStatus}
+            className={`absolute bottom-4 right-4 h-3 w-3 rounded-full ring-2 ring-white/30 ${
+              storageStatus.includes("Saving") || storageStatus.includes("Opening")
+                ? "bg-amber-300"
+                : storageStatus.includes("unavailable") || storageStatus.includes("failed")
+                  ? "bg-rose-300"
+                  : "bg-emerald-300"
+            }`}
+          />
           <div className="mb-6 flex flex-col gap-5 md:flex-row md:items-center md:justify-between">
             <div className="space-y-4">
               <div className="inline-flex items-center gap-2 rounded-full bg-white/10 px-4 py-2 text-sm text-slate-200 ring-1 ring-white/10">
@@ -4305,19 +4741,15 @@ export default function App() {
               </div>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <div className="inline-flex items-center gap-2 rounded-2xl bg-white/10 px-4 py-3 text-sm font-semibold text-slate-200 ring-1 ring-white/10">
-                <span className={`h-2 w-2 rounded-full ${storageStatus.includes("Saving") || storageStatus.includes("Opening") ? "bg-amber-300" : storageStatus.includes("unavailable") || storageStatus.includes("failed") ? "bg-rose-300" : "bg-emerald-300"}`} />
-                {storageStatus}
-              </div>
               <div className="inline-flex max-w-full overflow-x-auto rounded-3xl border border-white/10 bg-white/10 text-sm font-semibold text-slate-200">
                 <button type="button" onClick={openDashboardPage} className={`whitespace-nowrap rounded-3xl px-4 py-3 transition ${currentPage === "dashboard" ? "bg-white text-slate-950" : "hover:bg-white/10"}`}>Dashboard</button>
                 <button type="button" onClick={openWeightPage} className={`whitespace-nowrap rounded-3xl px-4 py-3 transition ${currentPage === "weight" ? "bg-white text-slate-950" : "hover:bg-white/10"}`}>Weight</button>
                 <button type="button" onClick={openBloodPressurePage} className={`whitespace-nowrap rounded-3xl px-4 py-3 transition ${currentPage === "bloodPressure" ? "bg-white text-slate-950" : "hover:bg-white/10"}`}>Blood pressure</button>
-                <button type="button" onClick={openExercisePage} className={`whitespace-nowrap rounded-3xl px-4 py-3 transition ${currentPage === "exercise" ? "bg-white text-slate-950" : "hover:bg-white/10"}`}>Exercise</button>
                 <button type="button" onClick={openMounjaroPage} className={`whitespace-nowrap rounded-3xl px-4 py-3 transition ${currentPage === "mounjaro" ? "bg-white text-slate-950" : "hover:bg-white/10"}`}>Mounjaro</button>
                 <button type="button" onClick={openNutriTrackPage} className={`whitespace-nowrap rounded-3xl px-4 py-3 transition ${currentPage === "nutriTrack" ? "bg-white text-slate-950" : "hover:bg-white/10"}`}>NutriTrack</button>
                 <button type="button" onClick={openRecipesPage} className={`whitespace-nowrap rounded-3xl px-4 py-3 transition ${currentPage === "recipes" ? "bg-white text-slate-950" : "hover:bg-white/10"}`}>Recipes</button>
                 <button type="button" onClick={openFoodDatabasePage} className={`whitespace-nowrap rounded-3xl px-4 py-3 transition ${currentPage === "foodDatabase" ? "bg-white text-slate-950" : "hover:bg-white/10"}`}>Food database</button>
+                <button type="button" onClick={openSqlPage} title="SQL database" aria-label="SQL database" className={`whitespace-nowrap rounded-3xl px-4 py-3 transition ${currentPage === "sql" ? "bg-white text-slate-950" : "hover:bg-white/10"}`}><DatabaseIcon className="h-5 w-5" /></button>
               </div>
               <button type="button" onClick={openNutriTrackPage} className="inline-flex items-center justify-center gap-2 rounded-2xl bg-white px-5 py-3 font-semibold text-slate-950 shadow-lg transition hover:bg-slate-100"><PlusIcon className="h-5 w-5" />Log food</button>
             </div>
@@ -4402,22 +4834,6 @@ export default function App() {
 
               <div className="rounded-3xl bg-white/80 p-5 shadow-lg shadow-slate-200/60 ring-1 ring-slate-100">
                 <div className="mb-4 flex items-center gap-3">
-                  <div className="rounded-2xl bg-sky-100 p-3 text-sky-700"><FlameIcon className="h-5 w-5" /></div>
-                  <div>
-                    <h2 className="text-xl font-bold">Activity</h2>
-                    <p className="text-sm text-slate-500">{sortedExerciseEntries.length} exercise entries</p>
-                  </div>
-                </div>
-                <div className="grid gap-3 rounded-3xl bg-slate-50 p-4 text-sm text-slate-600">
-                  <p><span className="font-semibold text-slate-950">Latest:</span> {sortedExerciseEntries.length ? `${sortedExerciseEntries[sortedExerciseEntries.length - 1].activityType}, ${sortedExerciseEntries[sortedExerciseEntries.length - 1].duration} min` : "No activity yet"}</p>
-                  <p><span className="font-semibold text-slate-950">Steps:</span> {sortedExerciseEntries.length ? sortedExerciseEntries[sortedExerciseEntries.length - 1].steps || "--" : "--"}</p>
-                  <p><span className="font-semibold text-slate-950">Intensity:</span> {sortedExerciseEntries.length ? sortedExerciseEntries[sortedExerciseEntries.length - 1].intensity : "--"}</p>
-                </div>
-                <button type="button" onClick={openExercisePage} className="mt-4 w-full rounded-2xl bg-slate-950 px-4 py-3 text-sm font-semibold text-white shadow-lg transition hover:bg-slate-800">Open exercise</button>
-              </div>
-
-              <div className="rounded-3xl bg-white/80 p-5 shadow-lg shadow-slate-200/60 ring-1 ring-slate-100">
-                <div className="mb-4 flex items-center gap-3">
                   <div className="rounded-2xl bg-emerald-100 p-3 text-emerald-700"><SparklesIcon className="h-5 w-5" /></div>
                   <div>
                     <h2 className="text-xl font-bold">Mounjaro</h2>
@@ -4434,9 +4850,17 @@ export default function App() {
             </div>
 
             <div className="grid gap-6 lg:grid-cols-3">
-              <div className="rounded-3xl bg-white/80 p-5 shadow-lg shadow-slate-200/60 ring-1 ring-slate-100">
-                <h2 className="text-xl font-bold">NutriTrack</h2>
-                <p className="mt-2 text-sm text-slate-500">{nutriEntries.length} ingredient entries this week.</p>
+              <div className="relative overflow-hidden rounded-3xl bg-white/80 p-5 shadow-lg shadow-slate-200/60 ring-1 ring-slate-100">
+                <UtensilsIcon className="pointer-events-none absolute right-5 top-5 h-20 w-20 text-emerald-100" />
+                <div className="relative">
+                  <div className="mb-4 flex items-center gap-3">
+                    <div className="rounded-2xl bg-emerald-100 p-3 text-emerald-700"><UtensilsIcon className="h-5 w-5" /></div>
+                    <div>
+                      <h2 className="text-xl font-bold">NutriTrack</h2>
+                      <p className="text-sm text-slate-500">{nutriEntries.length} ingredient entries this week.</p>
+                    </div>
+                  </div>
+                </div>
                 <div className="mt-4 rounded-3xl bg-slate-50 p-4 text-sm text-slate-600">
                   {nutriWeekArchives.length} saved week{nutriWeekArchives.length === 1 ? "" : "s"} available.
                 </div>
@@ -4451,15 +4875,33 @@ export default function App() {
                 {githubSyncStatus && <p className="mt-3 text-sm font-semibold text-slate-600">{githubSyncStatus}</p>}
                 <button type="button" onClick={openNutriTrackPage} className="mt-3 w-full rounded-2xl bg-slate-950 px-4 py-3 text-sm font-semibold text-white shadow-lg transition hover:bg-slate-800">Open NutriTrack</button>
               </div>
-              <div className="rounded-3xl bg-white/80 p-5 shadow-lg shadow-slate-200/60 ring-1 ring-slate-100">
-                <h2 className="text-xl font-bold">Recipe cards</h2>
-                <p className="mt-2 text-sm text-slate-500">{recipeCards.length} recipes generated from NutriTrack meals.</p>
-                <button type="button" onClick={openRecipesPage} className="mt-4 w-full rounded-2xl bg-slate-950 px-4 py-3 text-sm font-semibold text-white shadow-lg transition hover:bg-slate-800">Open recipes</button>
+              <div className="relative overflow-hidden rounded-3xl bg-white/80 p-5 shadow-lg shadow-slate-200/60 ring-1 ring-slate-100">
+                <SparklesIcon className="pointer-events-none absolute right-5 top-5 h-20 w-20 text-amber-100" />
+                <div className="relative mb-5 flex items-center gap-3">
+                  <div className="rounded-2xl bg-amber-100 p-3 text-amber-700"><SparklesIcon className="h-5 w-5" /></div>
+                  <div>
+                    <h2 className="text-xl font-bold">Recipe cards</h2>
+                    <p className="text-sm text-slate-500">{recipeCards.length} recipes generated</p>
+                  </div>
+                </div>
+                <div className="relative rounded-3xl bg-slate-50 p-4 text-sm text-slate-600">
+                  Browse meal cards with ingredients, totals, and recipe images.
+                </div>
+                <button type="button" onClick={openRecipesPage} className="relative mt-4 w-full rounded-2xl bg-slate-950 px-4 py-3 text-sm font-semibold text-white shadow-lg transition hover:bg-slate-800">Open recipes</button>
               </div>
-              <div className="rounded-3xl bg-white/80 p-5 shadow-lg shadow-slate-200/60 ring-1 ring-slate-100">
-                <h2 className="text-xl font-bold">Food database</h2>
-                <p className="mt-2 text-sm text-slate-500">{foodDatabase.length} foods saved or available.</p>
-                <button type="button" onClick={openFoodDatabasePage} className="mt-4 w-full rounded-2xl bg-slate-950 px-4 py-3 text-sm font-semibold text-white shadow-lg transition hover:bg-slate-800">Open food database</button>
+              <div className="relative overflow-hidden rounded-3xl bg-white/80 p-5 shadow-lg shadow-slate-200/60 ring-1 ring-slate-100">
+                <DatabaseIcon className="pointer-events-none absolute right-5 top-5 h-20 w-20 text-sky-100" />
+                <div className="relative mb-5 flex items-center gap-3">
+                  <div className="rounded-2xl bg-sky-100 p-3 text-sky-700"><DatabaseIcon className="h-5 w-5" /></div>
+                  <div>
+                    <h2 className="text-xl font-bold">Food database</h2>
+                    <p className="text-sm text-slate-500">{foodDatabase.length} foods saved or available</p>
+                  </div>
+                </div>
+                <div className="relative rounded-3xl bg-slate-50 p-4 text-sm text-slate-600">
+                  Search foods, expand nutrition, and reuse common portions.
+                </div>
+                <button type="button" onClick={openFoodDatabasePage} className="relative mt-4 w-full rounded-2xl bg-slate-950 px-4 py-3 text-sm font-semibold text-white shadow-lg transition hover:bg-slate-800">Open food database</button>
               </div>
             </div>
           </>
@@ -4510,24 +4952,13 @@ export default function App() {
           />
         )}
 
-        {currentPage === "exercise" && (
-          <ExercisePage
-            entries={sortedExerciseEntries}
-            exerciseForm={exerciseForm}
-            onExerciseFormChange={handleExerciseFormChange}
-            onAddExercise={handleAddExercise}
-            onDeleteExercise={handleDeleteExercise}
-            onBack={openDashboardPage}
-          />
-        )}
-
         {currentPage === "mounjaro" && (
           <MounjaroPage
             entries={sortedMounjaroEntries}
             nextStrength={mounjaroNextStrength}
-            nextStrengthStartDate={mounjaroNextStrengthStartDate}
-            onSelectNextStrength={setMounjaroNextStrength}
-            onSelectNextStrengthStartDate={setMounjaroNextStrengthStartDate}
+            strengthStartDates={mounjaroStrengthStartDates}
+            onSelectNextStrength={handleSelectMounjaroStrength}
+            onSetStrengthStartDate={handleSetMounjaroStrengthStartDate}
             onConfirmInjectionDate={handleConfirmMounjaroDate}
             onDeleteEntry={handleDeleteMounjaroEntry}
             onBack={openDashboardPage}
@@ -4575,6 +5006,16 @@ export default function App() {
             onUpdateFoodNutrition={handleUpdateFoodNutrition}
             onDeleteFood={handleDeleteFood}
             onBack={openDashboardPage}
+          />
+        )}
+
+        {currentPage === "sql" && (
+          <SqlDatabasePage
+            onBack={openDashboardPage}
+            onDatabaseChanged={async () => {
+              const databaseState = await readDatabaseRecord(appStateStorageKey);
+              if (databaseState) applyDatabaseState(databaseState);
+            }}
           />
         )}
       </div>

@@ -297,6 +297,15 @@ function getNutriEntryImportKey(entry) {
     String(entry?.recipeName || "").trim().toLowerCase(),
     String(entry?.ingredient || "").trim().toLowerCase(),
     String(entry?.unit || "g").trim().toLowerCase(),
+  ].join("|");
+}
+
+function getNutriEntryDuplicateKey(entry) {
+  return [
+    normalizeImportDay(entry?.day),
+    String(entry?.meal || "").trim().toLowerCase(),
+    String(entry?.ingredient || "").trim().toLowerCase(),
+    String(entry?.unit || "g").trim().toLowerCase(),
     safeNumber(entry?.grams),
     safeNumber(entry?.kcal),
   ].join("|");
@@ -313,8 +322,13 @@ function mergeNutriEntries(existingEntries, importedEntries) {
     byKey.set(getNutriEntryImportKey(entry), entry);
   });
 
+  const byDuplicateKey = new Map();
+  [...byKey.values()].forEach((entry) => {
+    byDuplicateKey.set(getNutriEntryDuplicateKey(entry), entry);
+  });
+
   const dayIndex = new Map(weekDays.map((day, index) => [day, index]));
-  return [...byKey.values()].sort((a, b) => {
+  return [...byDuplicateKey.values()].sort((a, b) => {
     const dayDelta = (dayIndex.get(normalizeImportDay(a.day)) ?? 99) - (dayIndex.get(normalizeImportDay(b.day)) ?? 99);
     if (dayDelta) return dayDelta;
     return String(a.meal || "").localeCompare(String(b.meal || "")) || String(a.recipeName || "").localeCompare(String(b.recipeName || ""));
@@ -462,6 +476,82 @@ app.get("/api/app-state/:key", (request, response) => {
 app.put("/api/app-state/:key", (request, response) => {
   const updatedAt = writeAppStateValue(request.params.key, request.body?.value ?? null);
   response.json({ ok: true, updatedAt });
+});
+
+function quoteIdentifier(identifier) {
+  return `"${String(identifier).replace(/"/g, '""')}"`;
+}
+
+function getSqlTableInfo(tableName) {
+  const tables = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'").all();
+  if (!tables.some((table) => table.name === tableName)) return null;
+  return db.prepare(`PRAGMA table_info(${quoteIdentifier(tableName)})`).all();
+}
+
+app.get("/api/sql/tables", (_request, response) => {
+  const tables = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name").all();
+  response.json({
+    tables: tables.map((table) => ({
+      name: table.name,
+      columns: getSqlTableInfo(table.name),
+    })),
+  });
+});
+
+app.get("/api/sql/tables/:table", (request, response) => {
+  const tableName = request.params.table;
+  const columns = getSqlTableInfo(tableName);
+  if (!columns) {
+    response.status(404).json({ error: "Table not found" });
+    return;
+  }
+
+  const limit = Math.min(200, Math.max(1, Number(request.query.limit) || 100));
+  const rows = db.prepare(`SELECT * FROM ${quoteIdentifier(tableName)} LIMIT ?`).all(limit);
+  response.json({ table: tableName, columns, rows });
+});
+
+app.put("/api/sql/tables/:table/row", (request, response) => {
+  const tableName = request.params.table;
+  const columns = getSqlTableInfo(tableName);
+  if (!columns) {
+    response.status(404).json({ error: "Table not found" });
+    return;
+  }
+
+  const primaryColumns = columns.filter((column) => column.pk).sort((a, b) => a.pk - b.pk);
+  if (!primaryColumns.length) {
+    response.status(400).json({ error: "Table does not have a primary key." });
+    return;
+  }
+
+  const values = request.body?.values && typeof request.body.values === "object" ? request.body.values : {};
+  const primaryKey = request.body?.primaryKey && typeof request.body.primaryKey === "object" ? request.body.primaryKey : {};
+  const editableColumns = columns
+    .map((column) => column.name)
+    .filter((name) => !primaryColumns.some((column) => column.name === name))
+    .filter((name) => Object.prototype.hasOwnProperty.call(values, name));
+
+  if (!editableColumns.length) {
+    response.status(400).json({ error: "No editable values provided." });
+    return;
+  }
+
+  const missingPrimaryKey = primaryColumns.some((column) => !Object.prototype.hasOwnProperty.call(primaryKey, column.name));
+  if (missingPrimaryKey) {
+    response.status(400).json({ error: "Missing primary key value." });
+    return;
+  }
+
+  const setClause = editableColumns.map((name) => `${quoteIdentifier(name)} = ?`).join(", ");
+  const whereClause = primaryColumns.map((column) => `${quoteIdentifier(column.name)} = ?`).join(" AND ");
+  const params = [
+    ...editableColumns.map((name) => values[name]),
+    ...primaryColumns.map((column) => primaryKey[column.name]),
+  ];
+
+  db.prepare(`UPDATE ${quoteIdentifier(tableName)} SET ${setClause} WHERE ${whereClause}`).run(...params);
+  response.json({ ok: true });
 });
 
 app.post("/api/github-imports/sync", async (_request, response) => {
