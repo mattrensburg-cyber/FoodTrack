@@ -7,3 +7,18 @@ dist
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+# Runtime data and AI import queue files are generated locally/remotely.
+# Keep only folder placeholders in Git to avoid merge conflicts.
+ai-imports/pending/*.json
+ai-imports/synced/*.json
+!ai-imports/pending/.gitkeep
+!ai-imports/synced/.gitkeep
+data/*.sqlite
+data/*.db
+data/*-journal
+data/*.log
+data/**/*.sqlite
+data/**/*.db
+data/**/*-journal
+data/**/*.log
