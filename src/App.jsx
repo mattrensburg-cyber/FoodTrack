@@ -3,7 +3,6 @@ import {
   Line,
   LineChart,
   CartesianGrid,
-  ReferenceDot,
   ReferenceLine,
   ResponsiveContainer,
   Tooltip,
@@ -197,6 +196,8 @@ const nutritionGoals = {
 
 const weekDays = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 const dateWeekDays = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+const recipeSaveMeals = ["Breakfast", "Lunch", "Dinner"];
+const mealNames = ["Breakfast", "Lunch", "Dinner", "Snack", "Supplement"];
 const foodCategories = ["All", "Fruit", "Vegetables", "Grains", "Legumes", "Protein", "Dairy", "Snacks"];
 const defaultFoodCategories = foodCategories.filter((item) => item !== "All");
 
@@ -207,6 +208,8 @@ const fibreLookupPer100g = {
   banana: 2.6,
   blueberries: 2.4,
   raspberries: 6.5,
+  blackberries: 5.3,
+  strawberries: 2,
   apple: 2.4,
   lentils: 7.9,
   chickpeas: 7.6,
@@ -240,6 +243,9 @@ const fibreLookupPer100g = {
 const defaultFoodDatabase = [
   { name: "Oats", category: "Grains", kcal: 389, protein: 16.9, carbs: 66.3, fat: 6.9, fibre: 10.6, sugar: 0.9, portion: 40, unit: "g", fibreTypes: ["Beta-glucan", "Soluble fibre"], gutHealth: "Supports beneficial gut bacteria and bowel regularity.", mounjaroNote: "Useful for fullness, but portions should still be controlled." },
   { name: "Blueberries", category: "Fruit", kcal: 45, protein: 0.7, carbs: 11, fat: 0.3, fibre: 2.4, sugar: 10, portion: 100, unit: "g", fibreTypes: ["Pectin", "Fruit skin fibre"], gutHealth: "Polyphenols support gut microbiome diversity.", mounjaroNote: "Low calorie sweet option with useful volume." },
+  { name: "Raspberries", category: "Fruit", kcal: 52, protein: 1.2, carbs: 11.9, fat: 0.7, fibre: 6.5, sugar: 4.4, portion: 100, unit: "g", fibreTypes: ["Pectin", "Insoluble fibre", "Berry seed fibre"], gutHealth: "High-fibre berry with polyphenols that support gut microbiome diversity and bowel regularity.", mounjaroNote: "Low calorie, high-volume fruit that can support fullness." },
+  { name: "Blackberries", category: "Fruit", kcal: 43, protein: 1.4, carbs: 10.2, fat: 0.5, fibre: 5.3, sugar: 4.9, portion: 100, unit: "g", fibreTypes: ["Pectin", "Insoluble fibre", "Berry seed fibre"], gutHealth: "Provides useful fibre and dark berry polyphenols that support gut-health variety.", mounjaroNote: "Good low-calorie sweet option with a strong fibre-to-calorie balance." },
+  { name: "Strawberries", category: "Fruit", kcal: 32, protein: 0.7, carbs: 7.7, fat: 0.3, fibre: 2, sugar: 4.9, portion: 100, unit: "g", fibreTypes: ["Pectin", "Fruit skin fibre"], gutHealth: "Adds vitamin C, polyphenols and gentle fruit fibre for dietary variety.", mounjaroNote: "Very low calorie fruit option that works well for volume and sweetness." },
   { name: "Chia seeds", category: "Grains", kcal: 486, protein: 17, carbs: 42, fat: 31, fibre: 34, sugar: 0, portion: 15, unit: "g", fibreTypes: ["Mucilage fibre", "Soluble fibre", "Insoluble fibre"], gutHealth: "Forms a gel that slows digestion and supports stool bulk.", mounjaroNote: "Very high fibre; increase gradually and drink enough fluid." },
   { name: "Flaxseed", category: "Grains", kcal: 530, protein: 18, carbs: 29, fat: 42, fibre: 27, sugar: 1.6, portion: 20, unit: "g", fibreTypes: ["Mucilage fibre", "Soluble fibre", "Insoluble fibre"], gutHealth: "Supports bowel regularity and may support cholesterol management.", mounjaroNote: "Calorie dense but useful in small measured portions." },
   { name: "Chickpeas", category: "Legumes", kcal: 160, protein: 8.9, carbs: 27, fat: 2.6, fibre: 7.6, sugar: 4.8, portion: 50, unit: "g", fibreTypes: ["Fermentable fibre", "Resistant starch", "Insoluble fibre"], gutHealth: "Supports gut fermentation and butyrate production.", mounjaroNote: "Good fibre and protein balance for fullness." },
@@ -457,6 +463,26 @@ function normalizeImportDay(value) {
   return "";
 }
 
+function normalizeMealName(value) {
+  const text = String(value || "").trim().toLowerCase();
+  if (!text) return "";
+  if (["breakfast", "brekkie", "morning"].includes(text) || text.includes("breakfast")) return "Breakfast";
+  if (["lunch", "midday"].includes(text) || text.includes("lunch")) return "Lunch";
+  if (["dinner", "supper", "tea", "evening"].includes(text) || text.includes("dinner")) return "Dinner";
+  if (["snack", "snacks"].includes(text) || text.includes("snack")) return "Snack";
+  if (["supplement", "supplements"].includes(text) || text.includes("supplement")) return "Supplement";
+  return mealNames.find((meal) => meal.toLowerCase() === text) || String(value || "").trim();
+}
+
+function getTargetMeal(...sources) {
+  for (const source of sources) {
+    const value = source?.meal ?? source?.targetMeal ?? source?.sendTo ?? source?.addTo ?? source?.section ?? source?.mealType;
+    const meal = normalizeMealName(value);
+    if (meal) return meal;
+  }
+  return "";
+}
+
 function getDateWeekdayIndex(dateString) {
   const parts = parseDateParts(dateString);
   if (!parts) return -1;
@@ -611,9 +637,10 @@ function buildNutriEntryFromImportItem(item, context = {}) {
   return {
     id: createId(),
     day: context.day || null,
-    meal: context.meal || "",
+    meal: getTargetMeal(context, item),
     recipeName: context.recipeName || "",
     tag: context.tag || "",
+    savedRecipe: Boolean(context.savedRecipe ?? item.savedRecipe ?? item.saveRecipe),
     notes: context.notes || {},
     dailyNotes: context.dailyNotes || {},
     ingredient: ingredientName,
@@ -638,9 +665,10 @@ function normalizeNutriEntry(entry, fallbackDay = "Monday") {
   return {
     id: entry.id || createId(),
     day: normalizeImportDay(entry.day) || fallbackDay,
-    meal: entry.meal || "",
+    meal: getTargetMeal(entry),
     recipeName: entry.recipeName || "",
     tag: entry.tag || "",
+    savedRecipe: Boolean(entry.savedRecipe ?? entry.saveRecipe),
     notes: entry.notes || {},
     dailyNotes: entry.dailyNotes || {},
     ingredient: entry.ingredient || "",
@@ -959,6 +987,7 @@ function getIngredientEmoji(ingredient) {
   if (normalized.includes("nut")) return "🥜";
   if (normalized.includes("blueberr")) return "🫐";
   if (normalized.includes("raspberr") || normalized.includes("strawberr")) return "🍓";
+  if (normalized.includes("blackberr")) return "🫐";
   if (normalized.includes("tomato")) return "🍅";
   if (normalized.includes("honey")) return "🍯";
   if (normalized.includes("oil")) return "🫒";
@@ -1090,6 +1119,10 @@ function getRecipeImageSvg(recipe) {
 function buildRecipeCards(entries, references = []) {
   const grouped = new Map();
   sortNutriEntries(entries)
+    .filter((entry) => {
+      const tag = String(entry.tag || "Recipe").toLowerCase();
+      return entry.savedRecipe || (recipeSaveMeals.includes(entry.meal) && entry.recipeName && !["food", "supplement"].includes(tag));
+    })
     .filter((entry) => entry.recipeName || entry.meal)
     .filter((entry) => String(entry.tag || "").toLowerCase() !== "supplement")
     .forEach((entry) => {
@@ -1123,7 +1156,7 @@ function getRecipeCardKey(entry) {
 
 function getFoodCategory(name) {
   const normalized = String(name || "").toLowerCase();
-  if (normalized.includes("blueberr") || normalized.includes("apple") || normalized.includes("banana")) return "Fruit";
+  if (normalized.includes("blueberr") || normalized.includes("raspberr") || normalized.includes("blackberr") || normalized.includes("strawberr") || normalized.includes("apple") || normalized.includes("banana")) return "Fruit";
   if (normalized.includes("broccoli") || normalized.includes("cabbage") || normalized.includes("tomato") || normalized.includes("spinach")) return "Vegetables";
   if (normalized.includes("oat") || normalized.includes("chia") || normalized.includes("flax") || normalized.includes("seed")) return "Grains";
   if (normalized.includes("bean") || normalized.includes("chickpea") || normalized.includes("lentil")) return "Legumes";
@@ -1244,36 +1277,42 @@ function normalizeNutriImportPayload(text) {
   const parsedDay = normalizeImportDay(parsed?.day);
 
   if (parsed?.type === "nutritrack_import" && parsedDay && Array.isArray(parsed.items)) {
+    const meal = getTargetMeal(parsed);
     return {
       kind: "day",
       day: parsedDay,
-      meal: parsed.meal || "",
+      meal,
       recipeName: parsed.recipeName || "",
       tag: parsed.tag || "",
       items: parsed.items.map((item) => buildNutriEntryFromImportItem(item, {
         day: parsedDay,
-        meal: parsed.meal || "",
+        meal,
+        targetMeal: parsed.targetMeal ?? parsed.sendTo ?? parsed.addTo ?? parsed.section ?? parsed.mealType ?? "",
         recipeName: parsed.recipeName || "",
         tag: parsed.tag || "",
+        savedRecipe: parsed.savedRecipe ?? parsed.saveRecipe,
         notes: parsed.notes || {},
         errorMessage: "Each item needs ingredient, grams above 0, and kcal.",
       })),
     };
   }
 
-  if (parsed?.meal && Array.isArray(parsed.ingredients)) {
+  if (getTargetMeal(parsed) && Array.isArray(parsed.ingredients)) {
     const fallbackDay = normalizeImportDay(parsed.day) || null;
+    const meal = getTargetMeal(parsed);
     return {
       kind: "singleMeal",
       day: fallbackDay,
-      meal: parsed.meal || "",
+      meal,
       recipeName: parsed.recipeName || "",
       tag: parsed.tag || "",
       items: parsed.ingredients.map((item) => buildNutriEntryFromImportItem(item, {
         day: fallbackDay,
-        meal: parsed.meal || "",
+        meal,
+        targetMeal: parsed.targetMeal ?? parsed.sendTo ?? parsed.addTo ?? parsed.section ?? parsed.mealType ?? "",
         recipeName: parsed.recipeName || "",
         tag: parsed.tag || "",
+        savedRecipe: parsed.savedRecipe ?? parsed.saveRecipe,
         notes: parsed.notes || {},
         errorMessage: "Each supplement ingredient needs name, amount above 0, and kcal.",
       })),
@@ -1286,11 +1325,14 @@ function normalizeNutriImportPayload(text) {
 
   const items = parsed.entries.flatMap((entry) => {
     if (!Array.isArray(entry.ingredients)) return [];
+    const meal = getTargetMeal(entry, parsed);
     return entry.ingredients.map((item) => buildNutriEntryFromImportItem(item, {
         day: parsedDay,
-        meal: entry.meal || "",
+        meal,
+        targetMeal: entry.targetMeal ?? entry.sendTo ?? entry.addTo ?? entry.section ?? entry.mealType ?? parsed.targetMeal ?? parsed.sendTo ?? parsed.addTo ?? parsed.section ?? parsed.mealType ?? "",
         recipeName: entry.recipeName || "",
         tag: entry.tag || "",
+        savedRecipe: entry.savedRecipe ?? entry.saveRecipe ?? parsed.savedRecipe ?? parsed.saveRecipe,
         notes: entry.notes || {},
         dailyNotes: parsed.dailyNotes || {},
       }));
@@ -1995,22 +2037,6 @@ function getMounjaroDoseStartMarkers(entries) {
   return markers;
 }
 
-function MilestoneBubble({ viewBox, percent }) {
-  if (!viewBox) return null;
-  const x = viewBox.cx ?? viewBox.x ?? 0;
-  const y = viewBox.cy ?? viewBox.y ?? 0;
-
-  return (
-    <g transform={`translate(${x}, ${y})`}>
-      <rect x="-26" y="-39" width="52" height="24" rx="12" fill="#059669" />
-      <text x="0" y="-23" textAnchor="middle" fill="white" fontSize="11" fontWeight="700">
-        {percent}%
-      </text>
-      <path d="M-5 -15 L0 -8 L5 -15 Z" fill="#059669" />
-    </g>
-  );
-}
-
 function WeightPage({
   sortedWeights,
   weightGoals,
@@ -2050,6 +2076,11 @@ function WeightPage({
 
   const bmiGraphPercent = (() => {
     const constrained = Math.min(50, Math.max(10, bmi));
+    return ((constrained - 10) / 40) * 100;
+  })();
+  const startingBmi = calculateBMI(weightGoals.startingWeight, bmiProfile.heightCm);
+  const startingBmiGraphPercent = (() => {
+    const constrained = Math.min(50, Math.max(10, startingBmi));
     return ((constrained - 10) / 40) * 100;
   })();
 
@@ -2109,6 +2140,20 @@ function WeightPage({
   const reachedMilestoneChartPoints = reachedMilestonePoints
     .map((milestone) => ({ ...milestone, chartTime: dateToChartTime(milestone.date) }))
     .filter((milestone) => Number.isFinite(milestone.chartTime));
+  const milestoneChartTimeSet = new Set(reachedMilestoneChartPoints.map((milestone) => milestone.chartTime));
+  const renderWeightDot = ({ cx, cy, payload, r = 4 }) => {
+    const isMilestone = milestoneChartTimeSet.has(payload?.chartTime);
+    return (
+      <circle
+        cx={cx}
+        cy={cy}
+        r={isMilestone ? r + 2 : r}
+        fill={isMilestone ? "#16a34a" : "#ffffff"}
+        stroke={isMilestone ? "#15803d" : "#2563eb"}
+        strokeWidth={isMilestone ? 3 : 2}
+      />
+    );
+  };
   const weightChartTimes = [
     ...weightChartData.map((entry) => entry.chartTime),
     ...mounjaroDoseChartMarkers.map((marker) => marker.chartTime),
@@ -2197,19 +2242,13 @@ function WeightPage({
                     }}
                   />
                 ))}
-                <Line type="monotone" dataKey="weight" strokeWidth={4} dot={{ r: 4 }} activeDot={{ r: 6 }} />
-                {reachedMilestoneChartPoints.map((milestone) => (
-                  <ReferenceDot
-                    key={`${milestone.percent}-${milestone.date}`}
-                    x={milestone.chartTime}
-                    y={milestone.weight}
-                    r={0}
-                    fill="transparent"
-                    stroke="transparent"
-                    strokeWidth={0}
-                    label={<MilestoneBubble percent={milestone.percent} />}
-                  />
-                ))}
+                <Line
+                  type="monotone"
+                  dataKey="weight"
+                  strokeWidth={4}
+                  dot={(props) => renderWeightDot({ ...props, r: 4 })}
+                  activeDot={(props) => renderWeightDot({ ...props, r: 6 })}
+                />
               </LineChart>
             </ResponsiveContainer>
           </div>
@@ -2317,11 +2356,12 @@ function WeightPage({
                   style={{ left: `${segment.left}%`, width: `${segment.width}%` }}
                 />
               ))}
+              <div className="absolute top-0 h-full w-1 bg-slate-950" style={{ left: `${startingBmiGraphPercent}%` }} />
               <div className={`absolute top-0 h-full w-1 rounded-full ${bmiStateStyles.marker}`} style={{ left: `${bmiGraphPercent}%` }} />
               <div className={`absolute -top-5 text-xs font-semibold ${bmiStateStyles.text}`} style={{ left: `${bmiGraphPercent}%`, transform: 'translateX(-50%)' }}>×</div>
             </div>
             <div className={`mt-4 rounded-2xl bg-white px-4 py-3 text-sm font-semibold capitalize shadow-sm ring-1 ${bmiStateStyles.text} ${bmiStateStyles.ring}`}>
-              Current state: {bmiCategory}
+              Current state: {bmiCategory} / starting BMI {startingBmi.toFixed(1)}
             </div>
             <div className="relative mt-4 h-5">
               {bmiScaleTicks.map((threshold) => (
@@ -2338,8 +2378,12 @@ function WeightPage({
                 </div>
               ))}
               <div className="flex items-center gap-2">
-                <span className="inline-block h-3 w-3 rounded-full bg-slate-950" />
-                <span>Your BMI</span>
+                <span className={`inline-block h-3 w-3 rounded-full ${bmiStateStyles.marker}`} />
+                <span>Current BMI</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="inline-block h-4 w-1 bg-slate-950" />
+                <span>Starting BMI</span>
               </div>
             </div>
           </div>
@@ -2975,11 +3019,16 @@ function NutriTrackPage({
   onDeleteNutriEntry,
   onUpdateNutriEntry,
   onScaleNutriEntries,
+  onAssignNutriEntriesMeal,
+  onCopyPreviousDay,
+  onSaveMealRecipe,
   onSaveNutriWeek,
   onEditNutriWeek,
   onBack,
 }) {
   const entriesForDay = sortNutriEntries(nutriEntries).filter((entry) => entry.day === selectedDay);
+  const previousDay = weekDays[(weekDays.indexOf(selectedDay) + weekDays.length - 1) % weekDays.length];
+  const previousDayEntryCount = nutriEntries.filter((entry) => entry.day === previousDay).length;
   const [halveSelection, setHalveSelection] = useState([]);
   const analysis = calculateNutriAnalysis(entriesForDay, nutriReferences);
   const dayTotals = analysis.totals;
@@ -2995,6 +3044,14 @@ function NutriTrackPage({
   const selectedHalveIds = halveSelection.filter((id) => entriesForDay.some((entry) => entry.id === id));
   const allDayEntryIds = entriesForDay.map((entry) => entry.id);
   const allSelected = allDayEntryIds.length > 0 && allDayEntryIds.every((id) => selectedHalveIds.includes(id));
+  const mealSections = ["Breakfast", "Lunch", "Dinner", "Other"].map((meal) => {
+    const entries = entriesForDay.filter((entry) => (recipeSaveMeals.includes(entry.meal) ? entry.meal : "Other") === meal);
+    return {
+      meal,
+      entries,
+      kcal: Math.round(entries.reduce((total, entry) => total + safeNumber(entry.kcal), 0)),
+    };
+  });
   const toggleHalveSelection = (id) => {
     setHalveSelection((prev) => prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]);
   };
@@ -3004,6 +3061,25 @@ function NutriTrackPage({
     if (!selectedHalveIds.length) return;
     onScaleNutriEntries(selectedHalveIds, 0.5);
     setHalveSelection([]);
+  };
+  const moveSelectedToMeal = (meal) => {
+    if (!selectedHalveIds.length) return;
+    onAssignNutriEntriesMeal(selectedHalveIds, meal);
+    setHalveSelection([]);
+  };
+  const saveSelectedMealRecipe = (section) => {
+    const selectedEntries = section.entries.filter((entry) => selectedHalveIds.includes(entry.id));
+    if (!selectedEntries.length) return;
+    onSaveMealRecipe({
+      key: `${selectedDay}|${section.meal}|selected`,
+      day: selectedDay,
+      meal: section.meal,
+      recipeName: selectedEntries[0]?.recipeName || `${section.meal} recipe`,
+      tag: selectedEntries[0]?.tag || "Recipe",
+      entries: selectedEntries,
+      saved: selectedEntries.every((entry) => entry.savedRecipe),
+    });
+    setHalveSelection((prev) => prev.filter((id) => !selectedEntries.some((entry) => entry.id === id)));
   };
 
   return (
@@ -3038,7 +3114,15 @@ function NutriTrackPage({
         subtitle={`${formatDayMonthLabel(weekDateMap[selectedDay], true)} / imported ingredients eaten.`}
         meta={`${dayTotals.kcal} kcal / ${dayTotals.fibre.toFixed(1)}g fibre`}
       >
-          <div className="flex justify-end">
+          <div className="flex flex-wrap justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => onCopyPreviousDay(selectedDay)}
+              disabled={!previousDayEntryCount}
+              className="rounded-2xl bg-white px-4 py-2 text-sm font-semibold text-slate-700 ring-1 ring-slate-200 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
+            >
+              Copy {previousDay}
+            </button>
             <button type="button" onClick={onSaveNutriWeek} disabled={!nutriEntries.length} className="rounded-2xl bg-slate-950 px-4 py-2 text-sm font-semibold text-white shadow-lg transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:shadow-none">
               Save current week
             </button>
@@ -3092,59 +3176,87 @@ function NutriTrackPage({
           </div>
           <div className="mt-5 flex flex-col gap-3 rounded-3xl bg-white p-4 text-sm shadow-sm ring-1 ring-slate-100 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <p className="font-semibold text-slate-950">Adjust imported ingredients</p>
-              <p className="mt-1 text-slate-500">Tick the ingredients to halve, untick anything you want to keep full size, or edit amount and kcal directly.</p>
+              <p className="font-semibold text-slate-950">Ingredients by meal</p>
+              <p className="mt-1 text-slate-500">Tick ingredients to halve them, move them into breakfast/lunch/dinner, or edit amount and kcal directly.</p>
             </div>
             <div className="flex flex-wrap gap-2">
               <button type="button" onClick={allSelected ? clearHalving : selectAllForHalving} disabled={!entriesForDay.length} className="rounded-2xl bg-slate-100 px-4 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-50">
                 {allSelected ? "Clear ticks" : "Tick all"}
               </button>
+              {recipeSaveMeals.map((meal) => (
+                <button key={meal} type="button" onClick={() => moveSelectedToMeal(meal)} disabled={!selectedHalveIds.length} className="rounded-2xl bg-white px-4 py-2 text-xs font-semibold text-slate-700 ring-1 ring-slate-200 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400">
+                  Move to {meal}
+                </button>
+              ))}
               <button type="button" onClick={halveSelected} disabled={!selectedHalveIds.length} className="rounded-2xl bg-emerald-600 px-4 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-slate-300">
                 Halve selected
               </button>
             </div>
           </div>
-          <div className="mt-5 overflow-x-auto">
-            <table className="min-w-full text-left text-sm text-slate-700">
-              <thead>
-                <tr>
-                  <th className="px-3 py-3 font-semibold text-slate-500">Half?</th>
-                  <th className="px-3 py-3 font-semibold text-slate-500">Meal</th>
-                  <th className="px-3 py-3 font-semibold text-slate-500">Ingredient</th>
-                  <th className="px-3 py-3 font-semibold text-slate-500">Amount</th>
-                  <th className="px-3 py-3 font-semibold text-slate-500">Kcal</th>
-                  <th className="px-3 py-3 font-semibold text-slate-500">Action</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-200">
-                {entriesForDay.map((entry) => (
-                  <tr key={entry.id}>
-                    <td className="px-3 py-3">
-                      <input type="checkbox" checked={selectedHalveIds.includes(entry.id)} onChange={() => toggleHalveSelection(entry.id)} className="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500" aria-label={`Select ${entry.ingredient} for halving`} />
-                    </td>
-                    <td className="px-3 py-3">{entry.meal || "--"}</td>
-                    <td className="px-3 py-3 font-semibold"><span className="mr-2" aria-hidden="true">{getIngredientEmoji(entry.ingredient)}</span>{entry.ingredient}</td>
-                    <td className="px-3 py-3">
-                      <div className="flex min-w-32 items-center gap-2">
-                        <input type="number" min="0" step="0.1" value={entry.grams} onChange={(event) => onUpdateNutriEntry(entry.id, { grams: event.target.value })} className="w-24 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-900 focus:border-emerald-300 focus:outline-none" aria-label={`${entry.ingredient} amount`} />
-                        <span className="text-xs font-semibold text-slate-500">{entry.unit || "g"}</span>
-                      </div>
-                    </td>
-                    <td className="px-3 py-3">
-                      <input type="number" min="0" step="1" value={entry.kcal} onChange={(event) => onUpdateNutriEntry(entry.id, { kcal: event.target.value })} className="w-24 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-900 focus:border-emerald-300 focus:outline-none" aria-label={`${entry.ingredient} kcal`} />
-                    </td>
-                    <td className="px-3 py-3">
-                      <button type="button" onClick={() => onDeleteNutriEntry(entry.id)} className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700 transition hover:bg-slate-200">Delete</button>
-                    </td>
-                  </tr>
-                ))}
-                {!entriesForDay.length && (
-                  <tr>
-                    <td className="px-3 py-6 text-slate-500" colSpan={6}>No ingredients imported for this day yet.</td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
+          <div className="mt-5 grid gap-4">
+            {mealSections.map((section) => (
+              <div key={section.meal} className="overflow-hidden rounded-3xl bg-white shadow-sm ring-1 ring-slate-100">
+                <div className="flex items-center justify-between bg-slate-50 px-4 py-3">
+                  <h4 className="font-bold text-slate-950">{section.meal}</h4>
+                  <div className="flex items-center gap-2">
+                    <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-800 ring-1 ring-emerald-100">
+                      {section.meal} {section.kcal} kcal
+                    </span>
+                    {recipeSaveMeals.includes(section.meal) && (
+                      <button
+                        type="button"
+                        onClick={() => saveSelectedMealRecipe(section)}
+                        disabled={!section.entries.some((entry) => selectedHalveIds.includes(entry.id))}
+                        className="rounded-full bg-amber-600 px-3 py-1 text-xs font-semibold text-white shadow-sm transition hover:bg-amber-700 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500 disabled:shadow-none"
+                      >
+                        Save recipe
+                      </button>
+                    )}
+                    <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-slate-500 ring-1 ring-slate-100">{section.entries.length} item{section.entries.length === 1 ? "" : "s"}</span>
+                  </div>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="min-w-full text-left text-sm text-slate-700">
+                    <thead>
+                      <tr>
+                        <th className="px-3 py-3 font-semibold text-slate-500">Select</th>
+                        <th className="px-3 py-3 font-semibold text-slate-500">Ingredient</th>
+                        <th className="px-3 py-3 font-semibold text-slate-500">Amount</th>
+                        <th className="px-3 py-3 font-semibold text-slate-500">Kcal</th>
+                        <th className="px-3 py-3 font-semibold text-slate-500">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-200">
+                      {section.entries.map((entry) => (
+                        <tr key={entry.id}>
+                          <td className="px-3 py-3">
+                            <input type="checkbox" checked={selectedHalveIds.includes(entry.id)} onChange={() => toggleHalveSelection(entry.id)} className="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500" aria-label={`Select ${entry.ingredient}`} />
+                          </td>
+                          <td className="px-3 py-3 font-semibold"><span className="mr-2" aria-hidden="true">{getIngredientEmoji(entry.ingredient)}</span>{entry.ingredient}</td>
+                          <td className="px-3 py-3">
+                            <div className="flex min-w-32 items-center gap-2">
+                              <input type="number" min="0" step="0.1" value={entry.grams} onChange={(event) => onUpdateNutriEntry(entry.id, { grams: event.target.value })} className="w-24 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-900 focus:border-emerald-300 focus:outline-none" aria-label={`${entry.ingredient} amount`} />
+                              <span className="text-xs font-semibold text-slate-500">{entry.unit || "g"}</span>
+                            </div>
+                          </td>
+                          <td className="px-3 py-3">
+                            <input type="number" min="0" step="1" value={entry.kcal} onChange={(event) => onUpdateNutriEntry(entry.id, { kcal: event.target.value })} className="w-24 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-900 focus:border-emerald-300 focus:outline-none" aria-label={`${entry.ingredient} kcal`} />
+                          </td>
+                          <td className="px-3 py-3">
+                            <button type="button" onClick={() => onDeleteNutriEntry(entry.id)} className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700 transition hover:bg-slate-200">Delete</button>
+                          </td>
+                        </tr>
+                      ))}
+                      {!section.entries.length && (
+                        <tr>
+                          <td className="px-3 py-5 text-slate-500" colSpan={5}>No {section.meal.toLowerCase()} ingredients.</td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ))}
           </div>
       </CollapsiblePanel>
 
@@ -3415,12 +3527,54 @@ function NutriTrackPage({
   );
 }
 
-function RecipesPage({ recipes, onAddRecipeToDay, onRenameRecipe, onDeleteRecipe, onDeleteRecipeIngredient, onBack }) {
+function RecipesPage({ recipes, onAddRecipeToDay, onRenameRecipe, onUpdateRecipeIngredients, onDeleteRecipe, onDeleteRecipeIngredient, onBack }) {
   const [targetDays, setTargetDays] = useState({});
   const [recipeNames, setRecipeNames] = useState({});
   const [editingRecipeId, setEditingRecipeId] = useState("");
+  const [openRecipeId, setOpenRecipeId] = useState("");
+  const [ingredientDrafts, setIngredientDrafts] = useState([]);
   const getTargetDay = (recipe) => targetDays[recipe.id] || recipe.day || "Monday";
   const getRecipeName = (recipe) => recipeNames[recipe.id] ?? recipe.title;
+  const openRecipe = (recipe) => {
+    setOpenRecipeId(recipe.id);
+    setIngredientDrafts(recipe.ingredients.map((entry) => ({
+      id: entry.id,
+      ingredient: entry.ingredient || "",
+      grams: entry.grams ?? "",
+      unit: entry.unit || "g",
+      kcal: entry.kcal ?? "",
+      protein: entry.protein ?? "",
+      fibreG: entry.fibreG ?? "",
+      fibrePer100g: entry.fibrePer100g ?? "",
+    })));
+  };
+  const closeRecipe = () => {
+    setOpenRecipeId("");
+    setIngredientDrafts([]);
+  };
+  const updateIngredientDraft = (id, field, value) => {
+    setIngredientDrafts((prev) => prev.map((entry) => entry.id === id ? { ...entry, [field]: value } : entry));
+  };
+  const addIngredientDraft = () => {
+    setIngredientDrafts((prev) => [...prev, {
+      id: createId(),
+      ingredient: "",
+      grams: "",
+      unit: "g",
+      kcal: "",
+      protein: "",
+      fibreG: "",
+      fibrePer100g: "",
+    }]);
+  };
+  const removeIngredientDraft = (id) => setIngredientDrafts((prev) => prev.filter((entry) => entry.id !== id));
+  const saveOpenRecipe = () => {
+    const recipe = recipes.find((item) => item.id === openRecipeId);
+    if (!recipe) return;
+    onUpdateRecipeIngredients(recipe, ingredientDrafts);
+    closeRecipe();
+  };
+  const selectedRecipe = recipes.find((recipe) => recipe.id === openRecipeId);
   const clearRecipeNameDraft = (recipeId) => {
     setRecipeNames((prev) => {
       const next = { ...prev };
@@ -3466,13 +3620,18 @@ function RecipesPage({ recipes, onAddRecipeToDay, onRenameRecipe, onDeleteRecipe
 
       <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
         {recipes.map((recipe) => (
-          <article key={recipe.id} className="overflow-hidden rounded-3xl bg-white/85 shadow-lg shadow-slate-200/60 ring-1 ring-slate-100">
+          <article
+            key={recipe.id}
+            onClick={() => openRecipe(recipe)}
+            className="cursor-pointer overflow-hidden rounded-3xl bg-white/85 shadow-lg shadow-slate-200/60 ring-1 ring-slate-100 transition hover:-translate-y-0.5 hover:shadow-xl"
+          >
             <div className="relative aspect-[4/3] overflow-hidden bg-slate-100">
               <img src={recipe.imageUrl} alt={recipe.title} className="h-full w-full object-cover" loading="lazy" />
               <div className="absolute inset-x-4 bottom-4 rounded-2xl bg-white/90 px-4 py-3 shadow-lg shadow-slate-900/10 ring-1 ring-white/70 backdrop-blur">
                 {editingRecipeId === recipe.id ? (
                   <input
                     value={getRecipeName(recipe)}
+                    onClick={(event) => event.stopPropagation()}
                     onChange={(event) => setRecipeNames((prev) => ({ ...prev, [recipe.id]: event.target.value }))}
                     onBlur={() => saveRecipeName(recipe)}
                     onKeyDown={(event) => {
@@ -3485,7 +3644,10 @@ function RecipesPage({ recipes, onAddRecipeToDay, onRenameRecipe, onDeleteRecipe
                 ) : (
                   <button
                     type="button"
-                    onClick={() => startRecipeNameEdit(recipe)}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      startRecipeNameEdit(recipe);
+                    }}
                     className="block w-full text-center text-xl font-bold text-slate-950 transition hover:text-amber-700"
                     aria-label={`Edit recipe name for ${recipe.title}`}
                   >
@@ -3518,7 +3680,10 @@ function RecipesPage({ recipes, onAddRecipeToDay, onRenameRecipe, onDeleteRecipe
                   <p className="text-sm font-semibold text-slate-950">Ingredients</p>
                   <button
                     type="button"
-                    onClick={() => deleteRecipe(recipe)}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      deleteRecipe(recipe);
+                    }}
                     className="rounded-full bg-rose-50 px-3 py-1 text-xs font-semibold text-rose-700 ring-1 ring-rose-100 transition hover:bg-rose-100"
                   >
                     Delete recipe
@@ -3532,7 +3697,10 @@ function RecipesPage({ recipes, onAddRecipeToDay, onRenameRecipe, onDeleteRecipe
                       </span>
                       <button
                         type="button"
-                        onClick={() => deleteIngredient(entry)}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          deleteIngredient(entry);
+                        }}
                         className="grid h-5 w-5 place-items-center rounded-full bg-white text-slate-500 ring-1 ring-slate-200 transition hover:bg-rose-50 hover:text-rose-700 hover:ring-rose-100"
                         aria-label={`Delete ${entry.ingredient}`}
                       >
@@ -3546,6 +3714,7 @@ function RecipesPage({ recipes, onAddRecipeToDay, onRenameRecipe, onDeleteRecipe
               <div className="mt-5 grid gap-2 sm:grid-cols-[1fr_auto]">
                 <select
                   value={getTargetDay(recipe)}
+                  onClick={(event) => event.stopPropagation()}
                   onChange={(event) => setTargetDays((prev) => ({ ...prev, [recipe.id]: event.target.value }))}
                   className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 shadow-sm focus:border-amber-300 focus:outline-none"
                   aria-label={`Day to add ${recipe.title}`}
@@ -3554,7 +3723,10 @@ function RecipesPage({ recipes, onAddRecipeToDay, onRenameRecipe, onDeleteRecipe
                 </select>
                 <button
                   type="button"
-                  onClick={() => onAddRecipeToDay(recipe, getTargetDay(recipe))}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onAddRecipeToDay(recipe, getTargetDay(recipe));
+                  }}
                   className="rounded-2xl bg-slate-950 px-4 py-3 text-sm font-semibold text-white shadow-lg transition hover:bg-slate-800"
                 >
                   Add to day
@@ -3564,6 +3736,52 @@ function RecipesPage({ recipes, onAddRecipeToDay, onRenameRecipe, onDeleteRecipe
           </article>
         ))}
       </div>
+
+      {selectedRecipe && (
+        <div className="fixed inset-0 z-40 grid place-items-center bg-slate-950/45 p-4 backdrop-blur-sm" onClick={closeRecipe}>
+          <div className="max-h-[90vh] w-full max-w-5xl overflow-y-auto rounded-3xl bg-white p-6 shadow-2xl ring-1 ring-slate-200" onClick={(event) => event.stopPropagation()}>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.25em] text-amber-500">Edit recipe</p>
+                <h3 className="mt-2 text-2xl font-bold text-slate-950">{selectedRecipe.title}</h3>
+                <p className="mt-1 text-sm text-slate-500">{(selectedRecipe.days?.length ? selectedRecipe.days : [selectedRecipe.day]).join(", ")} / {selectedRecipe.meal}</p>
+              </div>
+              <button type="button" onClick={closeRecipe} className="rounded-2xl bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-200">Close</button>
+            </div>
+
+            <div className="mt-6 grid gap-3">
+              <div className="hidden grid-cols-[1.4fr_0.45fr_0.45fr_0.45fr_0.45fr_0.55fr_auto] gap-2 px-2 text-xs font-semibold uppercase tracking-wide text-slate-400 lg:grid">
+                <span>Ingredient</span>
+                <span>Amount</span>
+                <span>Unit</span>
+                <span>Kcal</span>
+                <span>Protein</span>
+                <span>Fibre</span>
+                <span />
+              </div>
+              {ingredientDrafts.map((entry) => (
+                <div key={entry.id} className="grid gap-2 rounded-2xl bg-slate-50 p-3 ring-1 ring-slate-100 lg:grid-cols-[1.4fr_0.45fr_0.45fr_0.45fr_0.45fr_0.55fr_auto]">
+                  <input value={entry.ingredient} onChange={(event) => updateIngredientDraft(entry.id, "ingredient", event.target.value)} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-900 outline-none focus:border-amber-300" placeholder="Ingredient" />
+                  <input type="number" min="0" step="0.1" value={entry.grams} onChange={(event) => updateIngredientDraft(entry.id, "grams", event.target.value)} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-amber-300" placeholder="Amount" />
+                  <input value={entry.unit} onChange={(event) => updateIngredientDraft(entry.id, "unit", event.target.value)} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-amber-300" placeholder="g" />
+                  <input type="number" min="0" step="0.1" value={entry.kcal} onChange={(event) => updateIngredientDraft(entry.id, "kcal", event.target.value)} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-amber-300" placeholder="kcal" />
+                  <input type="number" min="0" step="0.1" value={entry.protein} onChange={(event) => updateIngredientDraft(entry.id, "protein", event.target.value)} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-amber-300" placeholder="g" />
+                  <input type="number" min="0" step="0.1" value={entry.fibreG} onChange={(event) => updateIngredientDraft(entry.id, "fibreG", event.target.value)} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-amber-300" placeholder="g" />
+                  <button type="button" onClick={() => removeIngredientDraft(entry.id)} className="rounded-xl bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700 ring-1 ring-rose-100 transition hover:bg-rose-100">Remove</button>
+                </div>
+              ))}
+            </div>
+
+            <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <button type="button" onClick={addIngredientDraft} className="rounded-2xl bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-900 ring-1 ring-amber-100 transition hover:bg-amber-100">Add ingredient</button>
+              <div className="flex gap-2">
+                <button type="button" onClick={closeRecipe} className="rounded-2xl bg-slate-100 px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-200">Cancel</button>
+                <button type="button" onClick={saveOpenRecipe} className="rounded-2xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white shadow-lg transition hover:bg-slate-800">Save recipe</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {!recipes.length && (
         <div className="rounded-3xl bg-white/80 p-6 text-sm text-slate-600 shadow-lg shadow-slate-200/60 ring-1 ring-slate-100">
@@ -4434,6 +4652,56 @@ export default function App() {
       selectedIds.has(entry.id) ? normalizeNutriEntry(scaleNutriEntryPortion(entry, factor), entry.day) : entry
     ))));
   };
+  const handleAssignNutriEntriesMeal = (ids, meal) => {
+    if (!recipeSaveMeals.includes(meal)) return;
+    const selectedIds = new Set(ids);
+    setNutriEntries((prev) => sortNutriEntries(prev.map((entry) => (
+      selectedIds.has(entry.id)
+        ? normalizeNutriEntry({
+            ...entry,
+            meal,
+            recipeName: entry.recipeName || `${meal} recipe`,
+            tag: entry.tag || "Recipe",
+          }, entry.day)
+        : entry
+    ))));
+    setNutriImportStatus(`Moved ${selectedIds.size} item${selectedIds.size === 1 ? "" : "s"} to ${meal}.`);
+  };
+  const handleCopyPreviousNutriDay = (targetDay) => {
+    if (!weekDays.includes(targetDay)) return;
+    const previousDay = weekDays[(weekDays.indexOf(targetDay) + weekDays.length - 1) % weekDays.length];
+    const sourceEntries = sortNutriEntries(nutriEntries).filter((entry) => entry.day === previousDay);
+    if (!sourceEntries.length) {
+      setNutriImportStatus(`No ${previousDay} entries to copy.`);
+      return;
+    }
+    const copiedEntries = sourceEntries.map((entry) => normalizeNutriEntry({
+      ...entry,
+      id: createId(),
+      day: targetDay,
+    }, targetDay));
+    setNutriEntries((prev) => mergeNutriEntriesForImport(prev, copiedEntries));
+    setNutriReferences((prev) => mergeNutriReferences(prev, buildReferencesFromNutriItems(copiedEntries)));
+    setSelectedNutriDay(targetDay);
+    setNutriForm((prev) => ({ ...prev, day: targetDay }));
+    setNutriImportStatus(`Copied ${sourceEntries.length} item${sourceEntries.length === 1 ? "" : "s"} from ${previousDay} to ${targetDay}.`);
+  };
+  const handleSaveMealRecipe = (group) => {
+    if (!group?.entries?.length) return;
+    const ids = new Set(group.entries.map((entry) => entry.id));
+    setNutriEntries((prev) => sortNutriEntries(prev.map((entry) => (
+      ids.has(entry.id)
+        ? normalizeNutriEntry({
+            ...entry,
+            recipeName: entry.recipeName || group.recipeName || `${entry.meal} recipe`,
+            tag: entry.tag || group.tag || "Recipe",
+            savedRecipe: true,
+          }, entry.day)
+        : entry
+    ))));
+    setNutriReferences((prev) => mergeNutriReferences(prev, buildReferencesFromNutriItems(group.entries)));
+    setNutriImportStatus(`Saved ${group.meal} as a recipe card.`);
+  };
   const handleNutriImportTextChange = (event) => {
     setNutriImportText(event.target.value);
     setNutriImportStatus("");
@@ -4643,6 +4911,7 @@ export default function App() {
       meal: entry.meal || recipe.meal || "Recipe",
       recipeName: recipe.title,
       tag: recipe.tag || entry.tag || "Recipe",
+      savedRecipe: true,
     }, day));
     setNutriEntries((prev) => mergeNutriEntriesForImport(prev, recipeEntries));
     setNutriReferences((prev) => mergeNutriReferences(prev, buildReferencesFromNutriItems(recipeEntries)));
@@ -4668,6 +4937,85 @@ export default function App() {
     })));
     setNutriImportStatus(`Renamed recipe to ${title}.`);
     return title;
+  };
+  const handleUpdateRecipeIngredients = (recipe, drafts) => {
+    if (!recipe?.id) return;
+    const originalIds = new Set(recipe.ingredients.map((entry) => entry.id));
+    const normalizedDrafts = drafts
+      .map((draft) => ({
+        ...draft,
+        ingredient: String(draft.ingredient || "").trim(),
+        grams: safeNumber(draft.grams),
+        kcal: safeNumber(draft.kcal),
+        protein: draft.protein === "" || draft.protein === undefined ? undefined : safeNumber(draft.protein),
+        fibreG: draft.fibreG === "" || draft.fibreG === undefined ? undefined : safeNumber(draft.fibreG),
+        fibrePer100g: draft.fibrePer100g === "" || draft.fibrePer100g === undefined ? undefined : safeNumber(draft.fibrePer100g),
+      }))
+      .filter((draft) => draft.ingredient && draft.grams > 0 && draft.kcal >= 0);
+    const draftsById = new Map(normalizedDrafts.filter((draft) => originalIds.has(draft.id)).map((draft) => [draft.id, draft]));
+    const newDrafts = normalizedDrafts.filter((draft) => !originalIds.has(draft.id));
+    const keptOriginalIds = new Set(draftsById.keys());
+    const baseEntry = recipe.ingredients[0] || {};
+
+    const updateEntries = (entries, addNewRows) => {
+      const nextEntries = sortNutriEntries((entries || [])
+        .filter((entry) => !originalIds.has(entry.id) || keptOriginalIds.has(entry.id))
+        .map((entry) => {
+          const draft = draftsById.get(entry.id);
+          if (!draft) return entry;
+          return normalizeNutriEntry({
+            ...entry,
+            ingredient: draft.ingredient,
+            grams: draft.grams,
+            unit: draft.unit || entry.unit || "g",
+            kcal: draft.kcal,
+            protein: draft.protein,
+            fibreG: draft.fibreG,
+            fibrePer100g: draft.fibrePer100g,
+            savedRecipe: true,
+          }, entry.day);
+        }));
+      if (!addNewRows) return nextEntries;
+      const addedRows = newDrafts.map((draft) => normalizeNutriEntry({
+        ...baseEntry,
+        id: createId(),
+        day: baseEntry.day || recipe.day || selectedNutriDay,
+        meal: baseEntry.meal || recipe.meal || "Recipe",
+        recipeName: recipe.title,
+        tag: baseEntry.tag || recipe.tag || "Recipe",
+        ingredient: draft.ingredient,
+        grams: draft.grams,
+        unit: draft.unit || "g",
+        kcal: draft.kcal,
+        protein: draft.protein,
+        fibreG: draft.fibreG,
+        fibrePer100g: draft.fibrePer100g,
+        savedRecipe: true,
+      }, baseEntry.day || recipe.day || selectedNutriDay));
+      return sortNutriEntries([...nextEntries, ...addedRows]);
+    };
+
+    const currentHasRecipe = nutriEntries.some((entry) => originalIds.has(entry.id));
+    setNutriEntries((prev) => updateEntries(prev, currentHasRecipe || !recipe.ingredients.length));
+    setNutriWeekArchives((prev) => prev.map((archive) => {
+      const archiveHasRecipe = (archive.entries || []).some((entry) => originalIds.has(entry.id));
+      return {
+        ...archive,
+        entries: updateEntries(archive.entries, !currentHasRecipe && archiveHasRecipe),
+      };
+    }));
+    setNutriReferences((prev) => mergeNutriReferences(prev, buildReferencesFromNutriItems(normalizedDrafts.map((draft) => ({
+      ...baseEntry,
+      ingredient: draft.ingredient,
+      grams: draft.grams,
+      unit: draft.unit || "g",
+      kcal: draft.kcal,
+      protein: draft.protein,
+      fibreG: draft.fibreG,
+      fibrePer100g: draft.fibrePer100g,
+      savedRecipe: true,
+    })))));
+    setNutriImportStatus(`Saved recipe ${recipe.title}.`);
   };
   const handleDeleteRecipe = (recipe) => {
     if (!recipe?.id) return;
@@ -4976,6 +5324,9 @@ export default function App() {
             onDeleteNutriEntry={handleDeleteNutriEntry}
             onUpdateNutriEntry={handleUpdateNutriEntry}
             onScaleNutriEntries={handleScaleNutriEntries}
+            onAssignNutriEntriesMeal={handleAssignNutriEntriesMeal}
+            onCopyPreviousDay={handleCopyPreviousNutriDay}
+            onSaveMealRecipe={handleSaveMealRecipe}
             onSaveNutriWeek={() => archiveCurrentNutriWeek("manual")}
             onEditNutriWeek={handleEditNutriWeek}
             onBack={openDashboardPage}
@@ -4987,6 +5338,7 @@ export default function App() {
             recipes={recipeCards}
             onAddRecipeToDay={handleAddRecipeToDay}
             onRenameRecipe={handleRenameRecipe}
+            onUpdateRecipeIngredients={handleUpdateRecipeIngredients}
             onDeleteRecipe={handleDeleteRecipe}
             onDeleteRecipeIngredient={handleDeleteRecipeIngredient}
             onBack={openDashboardPage}

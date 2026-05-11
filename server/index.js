@@ -87,6 +87,7 @@ function writeAppStateValue(key, value) {
 
 const weekDays = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 const dateWeekDays = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+const mealNames = ["Breakfast", "Lunch", "Dinner", "Snack", "Supplement"];
 
 function safeNumber(value, fallback = 0) {
   const number = Number(value);
@@ -117,6 +118,26 @@ function normalizeImportDay(value) {
   if (/^\d{4}-\d{2}-\d{2}$/.test(text)) {
     const date = new Date(`${text}T00:00:00Z`);
     if (!Number.isNaN(date.getTime())) return dateWeekDays[date.getUTCDay()];
+  }
+  return "";
+}
+
+function normalizeMealName(value) {
+  const text = String(value || "").trim().toLowerCase();
+  if (!text) return "";
+  if (["breakfast", "brekkie", "morning"].includes(text) || text.includes("breakfast")) return "Breakfast";
+  if (["lunch", "midday"].includes(text) || text.includes("lunch")) return "Lunch";
+  if (["dinner", "supper", "tea", "evening"].includes(text) || text.includes("dinner")) return "Dinner";
+  if (["snack", "snacks"].includes(text) || text.includes("snack")) return "Snack";
+  if (["supplement", "supplements"].includes(text) || text.includes("supplement")) return "Supplement";
+  return mealNames.find((meal) => meal.toLowerCase() === text) || String(value || "").trim();
+}
+
+function getTargetMeal(...sources) {
+  for (const source of sources) {
+    const value = source?.meal ?? source?.targetMeal ?? source?.sendTo ?? source?.addTo ?? source?.section ?? source?.mealType;
+    const meal = normalizeMealName(value);
+    if (meal) return meal;
   }
   return "";
 }
@@ -177,9 +198,10 @@ function normalizeNutriEntry(item, context = {}) {
   return {
     id: crypto.randomUUID(),
     day,
-    meal: context.meal || item.meal || "",
+    meal: getTargetMeal(context, item),
     recipeName: context.recipeName || item.recipeName || "",
     tag: context.tag || item.tag || "Recipe",
+    savedRecipe: Boolean(context.savedRecipe ?? item.savedRecipe ?? item.saveRecipe),
     notes: context.notes || item.notes || {},
     dailyNotes: context.dailyNotes || item.dailyNotes || {},
     ingredient,
@@ -227,9 +249,10 @@ function normalizeMealSummaryEntry(entry, payload = {}) {
   return {
     id: crypto.randomUUID(),
     day,
-    meal: entry.meal || "",
+    meal: getTargetMeal(entry, payload),
     recipeName,
     tag: entry.tag || "Recipe",
+    savedRecipe: Boolean(entry.savedRecipe ?? entry.saveRecipe ?? payload.savedRecipe ?? payload.saveRecipe),
     notes: entry.notes || {},
     dailyNotes: payload.dailyNotes || {},
     ingredient: recipeName,
@@ -249,20 +272,24 @@ function normalizeGithubNutriPayload(payload) {
       .map((item) => normalizeNutriEntry(item, {
         day: payload.day,
         meal: payload.meal || "",
+        targetMeal: payload.targetMeal ?? payload.sendTo ?? payload.addTo ?? payload.section ?? payload.mealType ?? "",
         recipeName: payload.recipeName || "",
         tag: payload.tag || "Recipe",
+        savedRecipe: payload.savedRecipe ?? payload.saveRecipe,
         notes: payload.notes || {},
       }))
       .filter(Boolean);
   }
 
-  if (payload?.meal && Array.isArray(payload.ingredients)) {
+  if (getTargetMeal(payload) && Array.isArray(payload.ingredients)) {
     return payload.ingredients
       .map((item) => normalizeNutriEntry(item, {
         day: payload.day,
-        meal: payload.meal || "",
+        meal: getTargetMeal(payload),
+        targetMeal: payload.targetMeal ?? payload.sendTo ?? payload.addTo ?? payload.section ?? payload.mealType ?? "",
         recipeName: payload.recipeName || "",
         tag: payload.tag || "Recipe",
+        savedRecipe: payload.savedRecipe ?? payload.saveRecipe,
         notes: payload.notes || {},
       }))
       .filter(Boolean);
@@ -278,8 +305,10 @@ function normalizeGithubNutriPayload(payload) {
         .map((item) => normalizeNutriEntry(item, {
           day: payload.day,
           meal: entry.meal || "",
+          targetMeal: entry.targetMeal ?? entry.sendTo ?? entry.addTo ?? entry.section ?? entry.mealType ?? payload.targetMeal ?? payload.sendTo ?? payload.addTo ?? payload.section ?? payload.mealType ?? "",
           recipeName: entry.recipeName || "",
           tag: entry.tag || "Recipe",
+          savedRecipe: entry.savedRecipe ?? entry.saveRecipe ?? payload.savedRecipe ?? payload.saveRecipe,
           notes: entry.notes || {},
           dailyNotes: payload.dailyNotes || {},
         }))
