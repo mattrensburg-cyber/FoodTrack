@@ -3009,6 +3009,50 @@ function CollapsiblePanel({ title, subtitle, meta, defaultOpen = true, children 
   );
 }
 
+function NutriNumberInput({ value, onCommit, ariaLabel, step = "0.1" }) {
+  const [draft, setDraft] = useState(String(value ?? ""));
+
+  useEffect(() => {
+    setDraft(String(value ?? ""));
+  }, [value]);
+
+  const resetDraft = () => setDraft(String(value ?? ""));
+  const commitDraft = () => {
+    const trimmed = String(draft).trim();
+    if (!trimmed) {
+      resetDraft();
+      return;
+    }
+    const number = Number(trimmed);
+    if (!Number.isFinite(number) || number < 0) {
+      resetDraft();
+      return;
+    }
+    onCommit(trimmed);
+  };
+
+  return (
+    <input
+      type="number"
+      min="0"
+      step={step}
+      value={draft}
+      draggable={false}
+      onChange={(event) => setDraft(event.target.value)}
+      onBlur={commitDraft}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") event.currentTarget.blur();
+        if (event.key === "Escape") {
+          resetDraft();
+          event.currentTarget.blur();
+        }
+      }}
+      className="w-24 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-900 focus:border-emerald-300 focus:outline-none"
+      aria-label={ariaLabel}
+    />
+  );
+}
+
 function NutriTrackPage({
   nutriEntries,
   nutriWeekArchives,
@@ -3030,6 +3074,7 @@ function NutriTrackPage({
   const previousDay = weekDays[(weekDays.indexOf(selectedDay) + weekDays.length - 1) % weekDays.length];
   const previousDayEntryCount = nutriEntries.filter((entry) => entry.day === previousDay).length;
   const [halveSelection, setHalveSelection] = useState([]);
+  const [draggedNutriEntryId, setDraggedNutriEntryId] = useState("");
   const analysis = calculateNutriAnalysis(entriesForDay, nutriReferences);
   const dayTotals = analysis.totals;
   const dayProfile = calculateNutriDayProfile(analysis);
@@ -3066,6 +3111,27 @@ function NutriTrackPage({
     if (!selectedHalveIds.length) return;
     onAssignNutriEntriesMeal(selectedHalveIds, meal);
     setHalveSelection([]);
+  };
+  const startNutriEntryDrag = (event, entryId) => {
+    setDraggedNutriEntryId(entryId);
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", entryId);
+  };
+  const finishNutriEntryDrag = () => setDraggedNutriEntryId("");
+  const dropNutriEntryOnMeal = (event, section) => {
+    event.preventDefault();
+    const entryId = event.dataTransfer.getData("text/plain") || draggedNutriEntryId;
+    if (!entryId) return;
+    const entry = entriesForDay.find((item) => item.id === entryId);
+    if (!entry) return;
+    const currentSection = recipeSaveMeals.includes(entry.meal) ? entry.meal : "Other";
+    if (currentSection === section.meal) {
+      setDraggedNutriEntryId("");
+      return;
+    }
+    onAssignNutriEntriesMeal([entryId], recipeSaveMeals.includes(section.meal) ? section.meal : "", section.meal);
+    setHalveSelection((prev) => prev.filter((id) => id !== entryId));
+    setDraggedNutriEntryId("");
   };
   const saveSelectedMealRecipe = (section) => {
     const selectedEntries = section.entries.filter((entry) => selectedHalveIds.includes(entry.id));
@@ -3177,7 +3243,7 @@ function NutriTrackPage({
           <div className="mt-5 flex flex-col gap-3 rounded-3xl bg-white p-4 text-sm shadow-sm ring-1 ring-slate-100 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <p className="font-semibold text-slate-950">Ingredients by meal</p>
-              <p className="mt-1 text-slate-500">Tick ingredients to halve them, move them into breakfast/lunch/dinner, or edit amount and kcal directly.</p>
+              <p className="mt-1 text-slate-500">Tick ingredients to halve them, drag them between meals, or edit amount and kcal directly.</p>
             </div>
             <div className="flex flex-wrap gap-2">
               <button type="button" onClick={allSelected ? clearHalving : selectAllForHalving} disabled={!entriesForDay.length} className="rounded-2xl bg-slate-100 px-4 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-50">
@@ -3195,7 +3261,15 @@ function NutriTrackPage({
           </div>
           <div className="mt-5 grid gap-4">
             {mealSections.map((section) => (
-              <div key={section.meal} className="overflow-hidden rounded-3xl bg-white shadow-sm ring-1 ring-slate-100">
+              <div
+                key={section.meal}
+                onDragOver={(event) => {
+                  event.preventDefault();
+                  event.dataTransfer.dropEffect = "move";
+                }}
+                onDrop={(event) => dropNutriEntryOnMeal(event, section)}
+                className={`overflow-hidden rounded-3xl bg-white shadow-sm transition ${draggedNutriEntryId ? "ring-2 ring-emerald-200" : "ring-1 ring-slate-100"}`}
+              >
                 <div className="flex items-center justify-between bg-slate-50 px-4 py-3">
                   <h4 className="font-bold text-slate-950">{section.meal}</h4>
                   <div className="flex items-center gap-2">
@@ -3228,19 +3302,25 @@ function NutriTrackPage({
                     </thead>
                     <tbody className="divide-y divide-slate-200">
                       {section.entries.map((entry) => (
-                        <tr key={entry.id}>
+                        <tr
+                          key={entry.id}
+                          draggable
+                          onDragStart={(event) => startNutriEntryDrag(event, entry.id)}
+                          onDragEnd={finishNutriEntryDrag}
+                          className={`cursor-grab transition active:cursor-grabbing ${draggedNutriEntryId === entry.id ? "bg-emerald-50 opacity-60" : "bg-white"}`}
+                        >
                           <td className="px-3 py-3">
                             <input type="checkbox" checked={selectedHalveIds.includes(entry.id)} onChange={() => toggleHalveSelection(entry.id)} className="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500" aria-label={`Select ${entry.ingredient}`} />
                           </td>
                           <td className="px-3 py-3 font-semibold"><span className="mr-2" aria-hidden="true">{getIngredientEmoji(entry.ingredient)}</span>{entry.ingredient}</td>
                           <td className="px-3 py-3">
                             <div className="flex min-w-32 items-center gap-2">
-                              <input type="number" min="0" step="0.1" value={entry.grams} onChange={(event) => onUpdateNutriEntry(entry.id, { grams: event.target.value })} className="w-24 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-900 focus:border-emerald-300 focus:outline-none" aria-label={`${entry.ingredient} amount`} />
+                              <NutriNumberInput value={entry.grams} onCommit={(value) => onUpdateNutriEntry(entry.id, { grams: value })} ariaLabel={`${entry.ingredient} amount`} />
                               <span className="text-xs font-semibold text-slate-500">{entry.unit || "g"}</span>
                             </div>
                           </td>
                           <td className="px-3 py-3">
-                            <input type="number" min="0" step="1" value={entry.kcal} onChange={(event) => onUpdateNutriEntry(entry.id, { kcal: event.target.value })} className="w-24 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-900 focus:border-emerald-300 focus:outline-none" aria-label={`${entry.ingredient} kcal`} />
+                            <NutriNumberInput value={entry.kcal} onCommit={(value) => onUpdateNutriEntry(entry.id, { kcal: value })} ariaLabel={`${entry.ingredient} kcal`} step="1" />
                           </td>
                           <td className="px-3 py-3">
                             <button type="button" onClick={() => onDeleteNutriEntry(entry.id)} className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700 transition hover:bg-slate-200">Delete</button>
@@ -4652,20 +4732,21 @@ export default function App() {
       selectedIds.has(entry.id) ? normalizeNutriEntry(scaleNutriEntryPortion(entry, factor), entry.day) : entry
     ))));
   };
-  const handleAssignNutriEntriesMeal = (ids, meal) => {
-    if (!recipeSaveMeals.includes(meal)) return;
+  const handleAssignNutriEntriesMeal = (ids, meal, label = meal || "Other") => {
+    if (!recipeSaveMeals.includes(meal) && meal !== "") return;
     const selectedIds = new Set(ids);
+    const targetMeal = recipeSaveMeals.includes(meal) ? meal : "";
     setNutriEntries((prev) => sortNutriEntries(prev.map((entry) => (
       selectedIds.has(entry.id)
         ? normalizeNutriEntry({
             ...entry,
-            meal,
-            recipeName: entry.recipeName || `${meal} recipe`,
+            meal: targetMeal,
+            recipeName: targetMeal ? entry.recipeName || `${targetMeal} recipe` : entry.recipeName,
             tag: entry.tag || "Recipe",
           }, entry.day)
         : entry
     ))));
-    setNutriImportStatus(`Moved ${selectedIds.size} item${selectedIds.size === 1 ? "" : "s"} to ${meal}.`);
+    setNutriImportStatus(`Moved ${selectedIds.size} item${selectedIds.size === 1 ? "" : "s"} to ${label}.`);
   };
   const handleCopyPreviousNutriDay = (targetDay) => {
     if (!weekDays.includes(targetDay)) return;
