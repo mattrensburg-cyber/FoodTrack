@@ -666,7 +666,7 @@ app.post("/api/github-imports/sync", async (_request, response) => {
   }
 });
 
-app.post("/api/github/sync-nutritrack", async (_request, response) => {
+app.post("/api/github/sync-nutritrack", async (request, response) => {
   try {
     const owner = process.env.GITHUB_OWNER;
     const repo = process.env.GITHUB_REPO;
@@ -675,10 +675,13 @@ app.post("/api/github/sync-nutritrack", async (_request, response) => {
     const localSyncedDir = path.join(rootDir, githubSyncedPath);
     fs.mkdirSync(localPendingDir, { recursive: true });
     fs.mkdirSync(localSyncedDir, { recursive: true });
+    const shouldBackfillSynced = request.query.backfillSynced === "1";
     const localJsonFiles = fs.readdirSync(localPendingDir, { withFileTypes: true })
       .filter((file) => file.isFile() && file.name.toLowerCase().endsWith(".json"));
-    const localSyncedJsonFiles = fs.readdirSync(localSyncedDir, { withFileTypes: true })
-      .filter((file) => file.isFile() && file.name.toLowerCase().endsWith(".json"));
+    const localSyncedJsonFiles = shouldBackfillSynced
+      ? fs.readdirSync(localSyncedDir, { withFileTypes: true })
+        .filter((file) => file.isFile() && file.name.toLowerCase().endsWith(".json"))
+      : [];
 
     const current = db
       .prepare("SELECT value FROM app_state WHERE key = ?")
